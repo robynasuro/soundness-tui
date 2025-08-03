@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soundness TUI</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module">
+        import init from './pkg/soundness_tui.js';
+        async function run() {
+            try {
+                await init();
+                console.log("WebAssembly module loaded successfully");
+            } catch (e) {
+                console.error("Failed to load WebAssembly module:", e);
+            }
+        }
+        run();
+    </script>
+</body>
+</html>
