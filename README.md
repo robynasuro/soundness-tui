@@ -50,6 +50,11 @@ cargo install wasm-pack
 wasm-pack build --target web --release
 ```
 
+5. Run project in local vps:
+```bash
+python3 -m http.server 8080
+```
+
 ### Development
 
 Build: wasm-pack build --target web --release
