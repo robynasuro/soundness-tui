@@ -1,0 +1,9 @@
+:root{--bg:#0b0f14;--fg:#e6edf3;--muted:#9fb3c8;--card:#11161d;--accent:#5b9cff;--success:#2ecc71;--error:#ff5b6e}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif}
+#app{max-width:1040px;margin:40px auto;padding:24px;background:var(--card);border-radius:16px;box-shadow:0 6px 30px rgba(0,0,0,.25)}
+a{color:var(--accent)}
+.btn{display:inline-block;padding:10px 14px;border-radius:10px;border:1px solid #2a3340;background:#121821;color:var(--fg);cursor:pointer}
+.btn:hover{background:#1a2230}
+code,pre{background:#0d131a;border:1px solid #1b2533;border-radius:8px;padding:2px 6px}

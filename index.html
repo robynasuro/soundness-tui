@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Soundness TUI Web</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script>
+      // The Rust/Yew WASM expects this helper to exist:
+      // window.sendProofViaJs(signature, publicKey, url, payload)
+      window.sendProofViaJs = async (signature, publicKey, apiPath, payload) => {
+        try {
+          const endpoint = apiPath && apiPath.trim() ? apiPath : "/api/soundness-proxy";
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              body: typeof payload === "string" ? JSON.parse(payload) : payload,
+              signature,
+              publicKey
+            })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error((data && data.message) || "Proxy error");
+          }
+          return data;
+        } catch (err) {
+          console.error("sendProofViaJs error:", err);
+          throw err;
+        }
+      };
+    </script>
+
+    <script type="module">
+      import init from "./pkg/soundness_tui.js";
+      init().catch(e => console.error("WASM init failed:", e));
+    </script>
+  </body>
+</html>

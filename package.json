@@ -1,0 +1,17 @@
+{
+  "name": "soundness-tui",
+  "type": "module",
+  "description": "A WebAssembly-based TUI for Soundness proof submission",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "soundness_tui_bg.wasm",
+    "soundness_tui.js",
+    "soundness_tui.d.ts"
+  ],
+  "main": "soundness_tui.js",
+  "types": "soundness_tui.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
