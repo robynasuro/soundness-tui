@@ -1,0 +1,30 @@
+# Vercel metadata
+.vercel/
+
+# Rust build artifacts
+/target/
+
+# Node
+/node_modules/
+/npm-debug.log*
+/yarn-error.log*
+/pnpm-debug.log*
+
+# Env (kalau suatu saat dipakai)
+.env
+.env.local
+.env.*.local
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor junk
+.vscode/
+.idea/
+
+# Bundler caches (kalau nanti ada)
+.cache/
+dist/
+build/
+

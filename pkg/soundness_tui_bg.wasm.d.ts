@@ -19,5 +19,5 @@ export const __wbindgen_export_7: WebAssembly.Table;
 export const __externref_table_dealloc: (a: number) => void;
 export const closure55_externref_shim: (a: number, b: number, c: any) => void;
 export const closure59_externref_shim: (a: number, b: number, c: any) => void;
-export const closure29_externref_shim: (a: number, b: number, c: any, d: any) => void;
+export const closure30_externref_shim: (a: number, b: number, c: any, d: any) => void;
 export const __wbindgen_start: () => void;

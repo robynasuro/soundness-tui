@@ -35,7 +35,16 @@
 
         const text = await res.text();
         let data; try { data = JSON.parse(text); } catch { data = { status: "RAW", message: text }; }
-        if (!res.ok) throw new Error(data?.message || `Proxy error ${res.status}`);
+
+        // PENTING: jangan throw, balikin objek error supaya Rust bisa render rapih
+        if (!res.ok) {
+          return {
+            status: "SERVER_ERROR",
+            message: data?.message || res.statusText || "Soundness server returned an error",
+            server_status: res.status,
+            server_response: data
+          };
+        }
         return data;
       };
     </script>
