@@ -1,38 +1,22 @@
 /* Import font */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* Default variables */
+/* Default variables - DARK MODE */
 :root {
-    --primary: #3b82f6;
-    --primary-hover: #2563eb;
-    --primary-light: rgba(59, 130, 246, 0.1);
-    --background: #ffffff;
-    --card-bg: #f9fafb;
-    --text: #1f2937;
-    --text-muted: #6b7280;
-    --border: #e5e7eb;
-    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+    --primary: #60a5fa;
+    --primary-hover: #3b82f6;
+    --primary-light: rgba(59, 130, 246, 0.2);
+    --background: #111827;
+    --card-bg: #1f2937;
+    --text: #f9fafb;
+    --text-muted: #9ca3af;
+    --border: #374151;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
     --error: #ef4444;
     --success: #10b981;
     --warning: #f59e0b;
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Dark mode overrides */
-@media (prefers-color-scheme: dark) {
-    :root {
-        --primary: #60a5fa;
-        --primary-hover: #3b82f6;
-        --primary-light: rgba(59, 130, 246, 0.2);
-        --background: #111827;
-        --card-bg: #1f2937;
-        --text: #f9fafb;
-        --text-muted: #9ca3af;
-        --border: #374151;
-        --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-    }
 }
 
 /* Reset and base styles */
@@ -75,7 +59,6 @@ body {
 .app-header h1 {
     font-size: 1.8rem;
     font-weight: 700;
-    color: var(--text);
     background: linear-gradient(90deg, var(--primary), var(--primary-hover));
     -webkit-background-clip: text;
     background-clip: text;
@@ -171,7 +154,6 @@ body {
     font-size: 1.25rem;
     font-weight: 600;
     margin-bottom: 1.5rem;
-    color: var(--text);
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -195,7 +177,6 @@ body {
     font-size: 0.875rem;
     font-weight: 500;
     margin-bottom: 0.5rem;
-    color: var(--text);
 }
 
 .form-input {
@@ -276,7 +257,6 @@ body {
     overflow-y: auto;
     white-space: pre-wrap;
     font-size: 0.875rem;
-    color: var(--text);
     margin-top: 1rem;
     font-family: 'SF Mono', 'Roboto Mono', monospace;
     line-height: 1.6;
@@ -286,17 +266,9 @@ body {
     margin: 0;
 }
 
-.error-text {
-    color: var(--error);
-}
-
-.success-text {
-    color: var(--success);
-}
-
-.warning-text {
-    color: var(--warning);
-}
+.error-text { color: var(--error); }
+.success-text { color: var(--success); }
+.warning-text { color: var(--warning); }
 
 /* Modal styles */
 .modal {
@@ -315,10 +287,7 @@ body {
     transition: opacity 0.3s ease;
 }
 
-.modal.active {
-    opacity: 1;
-    pointer-events: all;
-}
+.modal.active { opacity: 1; pointer-events: all; }
 
 .modal-content {
     background-color: var(--card-bg);
@@ -331,15 +300,12 @@ body {
     transition: transform 0.3s ease;
 }
 
-.modal.active .modal-content {
-    transform: translateY(0);
-}
+.modal.active .modal-content { transform: translateY(0); }
 
 .modal-header {
     font-size: 1.25rem;
     font-weight: 600;
     margin-bottom: 1rem;
-    color: var(--text);
 }
 
 .modal-footer {
@@ -393,15 +359,10 @@ body {
     color: var(--primary);
     text-decoration: none;
     transition: var(--transition);
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
     font-size: 0.875rem;
 }
 
-.footer-links a:hover {
-    text-decoration: underline;
-}
+.footer-links a:hover { text-decoration: underline; }
 
 .footer-links a::after {
     content: "|";
@@ -409,9 +370,7 @@ body {
     color: var(--text-muted);
 }
 
-.footer-links a:last-child::after {
-    display: none;
-}
+.footer-links a:last-child::after { display: none; }
 
 .footer-copyright {
     font-size: 0.875rem;
@@ -420,104 +379,17 @@ body {
 
 /* Mobile adjustments */
 @media (max-width: 768px) {
-    .app-container {
-        margin: 1rem auto;
-        padding: 0.75rem;
-    }
-
-    .app-header {
-        padding: 0;
-    }
-
-    .mobile-menu-btn {
-        display: block;
-    }
-
-    .nav-buttons {
-        display: none;
-        flex-direction: column;
-    }
-
-    .tab-nav.mobile-open .nav-buttons {
-        display: flex;
-    }
-
-    .tab-btn {
-        width: 100%;
-        text-align: left;
-        padding: 1rem;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .tab-btn.active::after {
-        display: none;
-    }
-
-    .input-group {
-        padding: 1.25rem;
-    }
-
-    .button-group {
-        flex-direction: column;
-    }
-
-    .submit-btn {
-        width: 100%;
-    }
-
-    .footer-links {
-        flex-direction: row;
-        gap: 0.75rem;
-    }
-
-    .footer-links a::after {
-        content: "|";
-        margin-left: 0.75rem;
-    }
-
-    .footer-links a:last-child::after {
-        display: none;
-    }
-}
-
-/* Animation classes */
-.fade-in {
-    animation: fadeIn 0.3s ease-out;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-.slide-up {
-    animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-    from { 
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    to { 
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* Syntax highlighting for output (optional) */
-.output-box .success {
-    color: var(--success);
-}
-
-.output-box .error {
-    color: var(--error);
-}
-
-.output-box .warning {
-    color: var(--warning);
-}
-
-.output-box .info {
-    color: var(--primary);
+    .app-container { margin: 1rem auto; padding: 0.75rem; }
+    .app-header { padding: 0; }
+    .mobile-menu-btn { display: block; }
+    .nav-buttons { display: none; flex-direction: column; }
+    .tab-nav.mobile-open .nav-buttons { display: flex; }
+    .tab-btn { width: 100%; text-align: left; padding: 1rem; border-bottom: 1px solid var(--border); }
+    .tab-btn.active::after { display: none; }
+    .input-group { padding: 1.25rem; }
+    .button-group { flex-direction: column; }
+    .submit-btn { width: 100%; }
+    .footer-links { flex-direction: row; gap: 0.75rem; }
+    .footer-links a::after { content: "|"; margin-left: 0.75rem; }
+    .footer-links a:last-child::after { display: none; }
 }

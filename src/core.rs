@@ -11,6 +11,7 @@ use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
 use thiserror::Error;
+use js_sys::Date; // <-- butuh crate `js-sys`
 
 #[wasm_bindgen]
 extern "C" {
@@ -31,6 +32,7 @@ const SALT_LENGTH: usize = 32;
 const NONCE_LENGTH: usize = 12;
 const KEY_LENGTH: usize = 32;
 const ITERATIONS: u32 = 100_000;
+const TTL_MS: f64 = 60.0 * 60.0 * 1000.0; // 1 jam
 
 #[derive(Error, Debug)]
 pub enum CryptoError {
@@ -169,17 +171,12 @@ pub async fn send_proof(
     elf_file: Option<String>,
     password: String,
 ) -> Result<JsValue, JsValue> {
-    log(&format!("🔍 [Step 1] Starting proof submission process..."));
+    log("🔍 [Step 1] Starting proof submission process...");
 
     if proof_blob_id.is_empty() || key_name.is_empty() || proving_system.is_empty() {
         return Err(JsValue::from_str("Missing required fields: proof_blob_id, key_name, or proving_system"));
     }
 
-    log(&format!("📁 [Step 1.1] Proof ID: {}", proof_blob_id));
-    log(&format!("🔑 [Step 1.2] Key Name: {}", key_name));
-    log(&format!("🔧 [Step 1.3] Proving System: {}", proving_system));
-
-    log("📂 [Step 2] Loading key from storage...");
     let key_store = load_key_store()?;
     let key_pair = key_store.keys.get(&key_name)
         .ok_or_else(|| JsValue::from_str(&format!("Key '{}' not found in storage", key_name)))?;
@@ -187,7 +184,6 @@ pub async fn send_proof(
     let encrypted_secret = key_pair.encrypted_secret_key.as_ref()
         .ok_or_else(|| JsValue::from_str("No secret key found for this key pair"))?;
 
-    log("🔐 [Step 3] Decrypting secret key...");
     let secret_key = decrypt_secret(encrypted_secret, &password)
         .map_err(|e| JsValue::from_str(&format!("Failed to decrypt secret key: {}. Please check your password.", e.as_string().unwrap_or_default())))?;
 
@@ -196,20 +192,14 @@ pub async fn send_proof(
 
     let signing_key = SigningKey::from_bytes(&secret_key_array);
 
-    log("📦 [Step 4] Processing payload...");
     let payload_value: Value = match payload.as_ref() {
         Some(p) if !p.trim().is_empty() => {
-            log(&format!("📦 [Step 4.1] Parsing payload JSON: {} chars", p.len()));
             serde_json::from_str(p)
                 .map_err(|e| JsValue::from_str(&format!("Invalid JSON payload: {:?}", e)))?
         },
-        _ => {
-            log("📦 [Step 4.1] No payload provided, using empty object");
-            json!({})
-        },
+        _ => json!({}),
     };
 
-    log("🏗️ [Step 5] Building request body...");
     let proof_filename = "proof.bin";
     let mut request_body = json!({
         "proof_filename": proof_filename,
@@ -219,7 +209,6 @@ pub async fn send_proof(
     });
 
     let canonical_string = if let Some(game_name) = &game {
-        log(&format!("🎮 [Step 5.1] Adding game: {}", game_name));
         request_body["game"] = json!(game_name);
         format!(
             "proof:{}\ngame:{}\nproof_filename:{}\nproving_system:{}",
@@ -229,7 +218,6 @@ pub async fn send_proof(
             proving_system.to_lowercase()
         )
     } else if let Some(elf) = &elf_file {
-        log(&format!("📋 [Step 5.1] Adding ELF file: {}", elf));
         request_body["elf_filename"] = json!("program.elf");
         request_body["elf_blob_id"] = json!(elf);
         format!(
@@ -243,9 +231,6 @@ pub async fn send_proof(
         return Err(JsValue::from_str("Either game or elf_file must be provided"));
     };
 
-    log("✍️ [Step 6] Signing canonical string...");
-    log(&format!("✍️ [Step 6.1] Canonical string: {}", canonical_string));
-
     let signature_bytes = signing_key.sign(canonical_string.as_bytes());
     let signature = general_purpose::STANDARD.encode(signature_bytes.to_bytes());
     let public_key = key_pair.public_key_string.clone();
@@ -255,12 +240,6 @@ pub async fn send_proof(
     let body_str = serde_json::to_string(&request_body)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize request: {:?}", e)))?;
 
-    log("🚀 [Step 7] Sending request to server...");
-    log(&format!("🚀 [Step 7.1] Request size: {} bytes", body_str.len()));
-    log(&format!("🚀 [Step 7.2] Public key: {}...", &public_key[..20]));
-    log(&format!("🚀 [Step 7.3] Signature: {}...", &signature[..20]));
-
-    // panggil JS, tapi tangkap error JS juga
     let response = match send_proof_via_js(
         "/api/soundness-proxy",
         &body_str,
@@ -274,49 +253,10 @@ pub async fn send_proof(
         }
     };
 
-    log("📨 [Step 8] Processing server response...");
+    // refresh TTL setelah proof sukses
+    refresh_ttl();
 
-    let response_obj: Result<Value, _> = serde_wasm_bindgen::from_value(response.clone());
-
-    match response_obj {
-        Ok(json_response) => {
-            log("✅ [Step 8.1] Successfully parsed response");
-
-            // treat berbagai status error (termasuk SERVER_ERROR dari JS)
-            if let Some(status) = json_response.get("status").and_then(|s| s.as_str()) {
-                if matches!(status, "ERROR" | "NETWORK_ERROR" | "PROXY_ERROR" | "SERVER_ERROR") {
-                    log(&format!("❌ [Step 8.2] Error status: {}", status));
-
-                    let code = json_response.get("server_status").and_then(|v| v.as_i64()).unwrap_or(0);
-                    let msg  = json_response.get("message").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-
-                    // kembalikan error deskriptif ke UI
-                    let mut detailed = format!("{}{}", msg, if code > 0 { format!(" (HTTP {})", code) } else { String::new() });
-                    if let Some(details) = json_response.get("server_response") {
-                        if details.is_object() || details.is_array() {
-                            if let Ok(pretty) = serde_json::to_string_pretty(details) {
-                                detailed.push_str("\n\nServer Response:\n");
-                                detailed.push_str(&pretty);
-                            }
-                        }
-                    }
-                    return Err(JsValue::from_str(&detailed));
-                }
-            }
-
-            log("🎉 [Step 8.3] Proof submission successful!");
-            Ok(response)
-        }
-        Err(_) => {
-            log("❌ [Step 8.2] Failed to parse response as JSON");
-            let error_msg = if let Some(error_str) = response.as_string() {
-                format!("Server response error: {}", error_str)
-            } else {
-                "Unknown response format from server".to_string()
-            };
-            Err(JsValue::from_str(&error_msg))
-        }
-    }
+    Ok(response)
 }
 
 fn encrypt_secret(secret: &[u8], password: &str) -> Result<EncryptedSecretKey, JsValue> {
@@ -351,11 +291,24 @@ fn derive_key(password: &str, salt: &[u8]) -> [u8; KEY_LENGTH] {
 }
 
 fn load_key_store() -> Result<KeyStore, JsValue> {
-    let storage = web_sys::window()
-        .ok_or_else(|| JsValue::from_str("No window object available"))?
-        .local_storage()
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window object available"))?;
+    let storage = window.local_storage()
         .map_err(|e| JsValue::from_str(&format!("Failed to access localStorage: {:?}", e)))?
         .ok_or_else(|| JsValue::from_str("localStorage not supported"))?;
+
+    // cek TTL
+    if let Ok(Some(meta)) = storage.get_item("key_store_meta") {
+        if let Ok(meta_json) = serde_json::from_str::<serde_json::Value>(&meta) {
+            if let Some(exp) = meta_json.get("expires_at_ms").and_then(|v| v.as_f64()) {
+                let now = Date::now();
+                if now > exp {
+                    let _ = storage.remove_item("key_store");
+                    let _ = storage.remove_item("key_store_meta");
+                    return Ok(KeyStore::default());
+                }
+            }
+        }
+    }
 
     let json = storage.get_item("key_store")
         .map_err(|e| JsValue::from_str(&format!("Failed to read from localStorage: {:?}", e)))?
@@ -370,14 +323,35 @@ fn load_key_store() -> Result<KeyStore, JsValue> {
 }
 
 fn save_key_store(key_store: &KeyStore) -> Result<(), JsValue> {
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window object available"))?;
+    let storage = window.local_storage()
+        .map_err(|e| JsValue::from_str(&format!("Failed to access localStorage: {:?}", e)))?
+        .ok_or_else(|| JsValue::from_str("localStorage not supported"))?;
+
     let json = serde_json::to_string(key_store)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize key store: {:?}", e)))?;
 
-    web_sys::window()
-        .ok_or_else(|| JsValue::from_str("No window object available"))?
-        .local_storage()
-        .map_err(|e| JsValue::from_str(&format!("Failed to access localStorage: {:?}", e)))?
-        .ok_or_else(|| JsValue::from_str("localStorage not supported"))?
-        .set_item("key_store", &json)
-        .map_err(|e| JsValue::from_str(&format!("Failed to save to localStorage: {:?}", e)))
+    storage.set_item("key_store", &json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to save to localStorage: {:?}", e)))?;
+
+    // simpan meta TTL
+    let exp = Date::now() + TTL_MS;
+    let meta = json!({ "expires_at_ms": exp });
+    let meta_str = serde_json::to_string(&meta).unwrap_or_default();
+    let _ = storage.set_item("key_store_meta", &meta_str);
+
+    Ok(())
+}
+
+fn refresh_ttl() {
+    if let Some(window) = web_sys::window() {
+        // FIX: jangan pakai `.ok()`; langsung match ke Result
+        if let Ok(Some(storage)) = window.local_storage() {
+            let exp = Date::now() + TTL_MS;
+            let meta = json!({ "expires_at_ms": exp });
+            if let Ok(meta_str) = serde_json::to_string(&meta) {
+                let _ = storage.set_item("key_store_meta", &meta_str);
+            }
+        }
+    }
 }

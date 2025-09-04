@@ -342,15 +342,15 @@ export function send_proof(proof_blob_id, key_name, proving_system, game, payloa
 }
 
 function __wbg_adapter_48(arg0, arg1, arg2) {
-    wasm.closure55_externref_shim(arg0, arg1, arg2);
+    wasm.closure159_externref_shim(arg0, arg1, arg2);
 }
 
 function __wbg_adapter_51(arg0, arg1, arg2) {
-    wasm.closure59_externref_shim(arg0, arg1, arg2);
+    wasm.closure163_externref_shim(arg0, arg1, arg2);
 }
 
-function __wbg_adapter_116(arg0, arg1, arg2, arg3) {
-    wasm.closure30_externref_shim(arg0, arg1, arg2, arg3);
+function __wbg_adapter_123(arg0, arg1, arg2, arg3) {
+    wasm.closure59_externref_shim(arg0, arg1, arg2, arg3);
 }
 
 async function __wbg_load(module, imports) {
@@ -639,7 +639,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wbg_adapter_116(a, state0.b, arg0, arg1);
+                    return __wbg_adapter_123(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -694,6 +694,10 @@ function __wbg_get_imports() {
         const ret = arg0.node;
         return ret;
     };
+    imports.wbg.__wbg_now_807e54c39636c349 = function() {
+        const ret = Date.now();
+        return ret;
+    };
     imports.wbg.__wbg_parentElement_be28a1a931f9c9b7 = function(arg0) {
         const ret = arg0.parentElement;
         return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
@@ -722,6 +726,9 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_removeChild_841bf1dc802c0a2c = function() { return handleError(function (arg0, arg1) {
         const ret = arg0.removeChild(arg1);
         return ret;
+    }, arguments) };
+    imports.wbg.__wbg_removeItem_9d2669ee3bba6f7d = function() { return handleError(function (arg0, arg1, arg2) {
+        arg0.removeItem(getStringFromWasm0(arg1, arg2));
     }, arguments) };
     imports.wbg.__wbg_require_60cc747a6bc5215a = function() { return handleError(function () {
         const ret = module.require;
@@ -877,12 +884,12 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper1226 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 56, __wbg_adapter_48);
+    imports.wbg.__wbindgen_closure_wrapper2138 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 160, __wbg_adapter_48);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper2105 = function(arg0, arg1, arg2) {
-        const ret = makeClosure(arg0, arg1, 56, __wbg_adapter_51);
+    imports.wbg.__wbindgen_closure_wrapper3017 = function(arg0, arg1, arg2) {
+        const ret = makeClosure(arg0, arg1, 160, __wbg_adapter_51);
         return ret;
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {

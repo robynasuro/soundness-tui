@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use crate::core::{generate_key_pair, import_phrase, list_keys, send_proof};
+use regex::Regex; // <— NEW
 
 mod core;
 
@@ -34,6 +35,16 @@ pub struct ParsedCommand {
 
 static INIT_LOGGER: std::sync::Once = std::sync::Once::new();
 static STARTED: std::sync::Once = std::sync::Once::new();
+
+// NEW: helper untuk bikin URL jadi <a href="...">
+fn linkify(text: &str) -> String {
+    // regex simple untuk http(s)://... sampai spasi / kutip / tanda < >
+    let re = Regex::new(r#"https?://[^\s<>"']+"#).unwrap();
+    re.replace_all(text, |caps: &regex::Captures| {
+        let url = &caps[0];
+        format!(r#"<a href="{0}" target="_blank" rel="noopener noreferrer">{0}</a>"#, url)
+    }).into_owned()
+}
 
 #[wasm_bindgen]
 pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
@@ -570,13 +581,15 @@ pub fn app() -> Html {
                                     </button>
                                 </div>
                                 <div class="output-box">
-                                    <pre>{
-                                        if *is_sending {
-                                            "🔍 [Step 1] Analyzing inputs...\n📁 [Step 1.1] Proof: Detected as Walrus Blob ID\n📁 [Step 1.2] Proof value: <loading>\n📁 [Step 1.3] ELF Program: <loading>\n📂 [Step 2] Processing inputs...\n🔧 [Step 3] Building request body...\n✍️ [Step 4] Signing payload...\n🚀 [Step 5] Sending to server...".to_string()
-                                        } else {
-                                            (*parse_result).clone() + "\n" + &(*send_proof_result)
-                                        }
-                                    }</pre>
+                                {
+                                    if *is_sending {
+                                        html! { <pre>{ "🔍 [Step 1] Analyzing inputs...\n📁 [Step 1.1] Proof: Detected as Walrus Blob ID\n📁 [Step 1.2] Proof value: <loading>\n📁 [Step 1.3] ELF Program: <loading>\n📂 [Step 2] Processing inputs...\n🔧 [Step 3] Building request body...\n✍️ [Step 4] Signing payload...\n🚀 [Step 5] Sending to server..." }</pre> }
+                                    } else {
+                                        let combined = (*parse_result).clone() + "\n" + &(*send_proof_result);
+                                        let html_str = linkify(&combined);
+                                        html! { <pre>{ yew::Html::from_html_unchecked(yew::AttrValue::from(html_str)) }</pre> }
+                                    }
+                                }
                                 </div>
                                 {
                                     if *show_password_modal {
