@@ -393,3 +393,79 @@ body {
     .footer-links a::after { content: "|"; margin-left: 0.75rem; }
     .footer-links a:last-child::after { display: none; }
 }
+
+/* ===========================
+   ✨ Enhancements (baru)
+   =========================== */
+
+/* Output Box: link putih (no ungu) + break URL panjang */
+.output-box a,
+.output-box a:visited,
+.output-box a:active {
+  color: #EDEFF6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.output-box a:hover,
+.output-box a:focus {
+  color: #FFFFFF;
+  text-decoration-color: rgba(255,255,255,.6);
+}
+.output-box pre a { word-break: break-all; }
+
+/* Scrollbar halus utk Output Box */
+.output-box::-webkit-scrollbar { width: 10px; height: 10px; }
+.output-box::-webkit-scrollbar-track { background: transparent; }
+.output-box::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(120,170,255,.55), rgba(120,170,255,.35));
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.output-box:hover::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(150,190,255,.75), rgba(150,190,255,.45));
+}
+
+/* Global page scrollbar (Firefox & WebKit) */
+* { scrollbar-width: thin; scrollbar-color: rgba(120,130,150,.45) transparent; }
+body::-webkit-scrollbar { width: 10px; }
+body::-webkit-scrollbar-track { background: transparent; }
+body::-webkit-scrollbar-thumb {
+  background: rgba(120,130,150,.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+body:hover::-webkit-scrollbar-thumb { background: rgba(120,130,150,.55); }
+
+/* Role Card (Today's Role) */
+.role-card {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.role-left { display: flex; flex-direction: column; gap: .25rem; }
+.role-title { font-size: .9rem; color: var(--text-muted); letter-spacing: .3px; }
+.role-date  { font-size: .9rem; color: var(--text-muted); }
+.role-name  { font-weight: 800; font-size: 1.4rem; letter-spacing: .3px; }
+.role-badge {
+  margin-left: .5rem;
+  color: #facc15;
+  background: rgba(250,204,21,.08);
+  border: 1px solid rgba(250,204,21,.2);
+  padding: .25rem .5rem;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 700;
+}
+@media (max-width: 768px) {
+  .role-card { flex-direction: column; align-items: flex-start; }
+  .role-name { font-size: 1.25rem; }
+}

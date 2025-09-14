@@ -3,8 +3,12 @@ use yew::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+
 use crate::core::{generate_key_pair, import_phrase, list_keys, send_proof};
-use regex::Regex; // <— NEW
+
+use regex::Regex;
+use gloo_timers::callback::Interval;
+use js_sys::Date as JsDate;
 
 mod core;
 
@@ -13,13 +17,12 @@ extern "C" {
     #[wasm_bindgen(js_namespace = console)]
     fn log(s: &str);
 
-    // seragam sama core.rs, walau gak dipakai di file ini
     #[wasm_bindgen(catch, js_namespace = window)]
     async fn send_proof_via_js(
         url: &str,
         body: &str,
         signature: &str,
-        public_key: &str
+        public_key: &str,
     ) -> Result<JsValue, JsValue>;
 }
 
@@ -36,16 +39,62 @@ pub struct ParsedCommand {
 static INIT_LOGGER: std::sync::Once = std::sync::Once::new();
 static STARTED: std::sync::Once = std::sync::Once::new();
 
-// NEW: helper untuk bikin URL jadi <a href="...">
+/* -------- linkify output -------- */
 fn linkify(text: &str) -> String {
-    // regex simple untuk http(s)://... sampai spasi / kutip / tanda < >
     let re = Regex::new(r#"https?://[^\s<>"']+"#).unwrap();
     re.replace_all(text, |caps: &regex::Captures| {
         let url = &caps[0];
         format!(r#"<a href="{0}" target="_blank" rel="noopener noreferrer">{0}</a>"#, url)
-    }).into_owned()
+    })
+    .into_owned()
 }
 
+/* -------- role rotation (anchor-based) -------- */
+const ROLES: [&str; 5] = ["Zippy", "Bloop", "Blu", "Wava", "Echo"];
+const ANCHOR_Y: u32 = 2025; // 2025-09-13 → Wava
+const ANCHOR_M0: i32 = 8;   // month is 0-based (8 == September)
+const ANCHOR_D: i32 = 13;
+const ANCHOR_ROLE_IDX: usize = 3; // Wava
+
+fn days_since_anchor_local() -> i64 {
+    let now = JsDate::new_0();
+    let today_midnight = JsDate::new_with_year_month_day(
+        now.get_full_year() as u32,
+        now.get_month() as i32,
+        now.get_date() as i32,
+    )
+    .get_time();
+
+    let anchor_midnight =
+        JsDate::new_with_year_month_day(ANCHOR_Y, ANCHOR_M0, ANCHOR_D).get_time();
+
+    ((today_midnight - anchor_midnight) / 86_400_000.0).floor() as i64
+}
+
+fn role_for_today() -> (String, String) {
+    let days = days_since_anchor_local();
+    let idx = ((ANCHOR_ROLE_IDX as i64 + days).rem_euclid(5)) as usize;
+    let role = ROLES[idx].to_string();
+
+    let now = JsDate::new_0();
+    let weekday = [
+        "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+    ][now.get_day() as usize];
+    let month = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ][now.get_month() as usize];
+    let date_str = format!(
+        "{}, {} {}, {}",
+        weekday,
+        month,
+        now.get_date(),
+        now.get_full_year()
+    );
+    (role, date_str)
+}
+
+/* -------- CLI parser -------- */
 #[wasm_bindgen]
 pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
     log(&format!("Parsing command: {}", command));
@@ -53,8 +102,8 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
     log(&format!("Parsed args: {:?}", args));
 
     let mut parsed = ParsedCommand::default();
-
     let mut i = 0;
+
     while i < args.len() {
         let arg = &args[i];
         log(&format!("Processing argument {}: {}", i, arg));
@@ -69,11 +118,10 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
         match key {
             "soundness-cli" | "send" => {
                 i += 1;
-                continue;
             }
             "--proof-file" => {
-                if let Some(ref val) = value {
-                    parsed.proof_file = Some(val.clone());
+                if let Some(v) = value {
+                    parsed.proof_file = Some(v);
                     i += 1;
                 } else if i + 1 < args.len() {
                     parsed.proof_file = Some(args[i + 1].clone());
@@ -83,8 +131,8 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
                 }
             }
             "--key-name" => {
-                if let Some(ref val) = value {
-                    parsed.key_name = Some(val.trim().to_string());
+                if let Some(v) = value {
+                    parsed.key_name = Some(v.trim().to_string());
                     i += 1;
                 } else if i + 1 < args.len() {
                     parsed.key_name = Some(args[i + 1].trim().to_string());
@@ -94,8 +142,8 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
                 }
             }
             "--proving-system" => {
-                if let Some(ref val) = value {
-                    parsed.proving_system = Some(val.clone());
+                if let Some(v) = value {
+                    parsed.proving_system = Some(v);
                     i += 1;
                 } else if i + 1 < args.len() {
                     parsed.proving_system = Some(args[i + 1].clone());
@@ -105,8 +153,8 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
                 }
             }
             "--game" => {
-                if let Some(ref val) = value {
-                    parsed.game = Some(val.clone());
+                if let Some(v) = value {
+                    parsed.game = Some(v);
                     i += 1;
                 } else if i + 1 < args.len() {
                     parsed.game = Some(args[i + 1].clone());
@@ -116,17 +164,17 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
                 }
             }
             "--payload" => {
-                if let Some(ref val) = value {
-                    if serde_json::from_str::<Value>(val).is_ok() {
-                        parsed.payload = Some(val.clone());
+                if let Some(v) = value {
+                    if serde_json::from_str::<Value>(&v).is_ok() {
+                        parsed.payload = Some(v);
                     } else {
                         return Err(JsValue::from_str("Invalid JSON for --payload"));
                     }
                     i += 1;
                 } else if i + 1 < args.len() {
-                    let val = args[i + 1].clone();
-                    if serde_json::from_str::<Value>(&val).is_ok() {
-                        parsed.payload = Some(val);
+                    let v = args[i + 1].clone();
+                    if serde_json::from_str::<Value>(&v).is_ok() {
+                        parsed.payload = Some(v);
                     } else {
                         return Err(JsValue::from_str("Invalid JSON for --payload"));
                     }
@@ -136,8 +184,8 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
                 }
             }
             "--elf-file" => {
-                if let Some(ref val) = value {
-                    parsed.elf_file = Some(val.clone());
+                if let Some(v) = value {
+                    parsed.elf_file = Some(v);
                     i += 1;
                 } else if i + 1 < args.len() {
                     parsed.elf_file = Some(args[i + 1].clone());
@@ -154,8 +202,7 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
     }
 
     log(&format!("Parsed result: {:?}", parsed));
-    serde_wasm_bindgen::to_value(&parsed)
-        .map_err(|e| JsValue::from_str(&e.to_string()))
+    serde_wasm_bindgen::to_value(&parsed).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 #[wasm_bindgen]
@@ -183,6 +230,27 @@ pub fn app() -> Html {
     let password_error = use_state(|| String::new());
     let mobile_menu_open = use_state(|| false);
 
+    let today_role = use_state(|| String::new());
+    let today_date = use_state(|| String::new());
+    {
+        let today_role = today_role.clone();
+        let today_date = today_date.clone();
+        use_effect_with((), move |_| {
+            let set_both = {
+                let today_role = today_role.clone();
+                let today_date = today_date.clone();
+                move || {
+                    let (role, date) = role_for_today();
+                    today_role.set(role);
+                    today_date.set(date);
+                }
+            };
+            set_both();
+            let handle = Interval::new(60_000, move || set_both());
+            move || drop(handle)
+        });
+    }
+
     let toggle_mobile_menu = {
         let mobile_menu_open = mobile_menu_open.clone();
         Callback::from(move |_| {
@@ -205,26 +273,42 @@ pub fn app() -> Html {
         Callback::from(move |_| {
             match parse_cli_command(&command) {
                 Ok(result) => {
-                    let parsed: ParsedCommand = serde_wasm_bindgen::from_value(result).unwrap_or_default();
+                    let parsed: ParsedCommand =
+                        serde_wasm_bindgen::from_value(result).unwrap_or_default();
                     parsed_command.set(parsed.clone());
                     let mut output = String::new();
                     output.push_str("Parsed command:\n");
-                    output.push_str(&format!("Proof File: {}\n", parsed.proof_file.unwrap_or_default()));
-                    output.push_str(&format!("Key Name: {}\n", parsed.key_name.unwrap_or_default()));
-                    output.push_str(&format!("Proving System: {}\n", parsed.proving_system.unwrap_or_default()));
-                    output.push_str(&format!("Game: {}\n", parsed.game.unwrap_or_default()));
+                    output.push_str(&format!(
+                        "Proof File: {}\n",
+                        parsed.proof_file.clone().unwrap_or_default()
+                    ));
+                    output.push_str(&format!(
+                        "Key Name: {}\n",
+                        parsed.key_name.clone().unwrap_or_default()
+                    ));
+                    output.push_str(&format!(
+                        "Proving System: {}\n",
+                        parsed.proving_system.clone().unwrap_or_default()
+                    ));
+                    output.push_str(&format!("Game: {}\n", parsed.game.clone().unwrap_or_default()));
                     output.push_str(&format!(
                         "Payload: {}\n",
-                        parsed.payload
+                        parsed
+                            .payload
                             .as_ref()
-                            .map(|p| if serde_json::from_str::<Value>(p).is_ok() {
-                                "✅ Valid JSON".to_string()
-                            } else {
-                                "❌ Invalid JSON".to_string()
+                            .map(|p| {
+                                if serde_json::from_str::<Value>(p).is_ok() {
+                                    "✅ Valid JSON".to_string()
+                                } else {
+                                    "❌ Invalid JSON".to_string()
+                                }
                             })
                             .unwrap_or_default()
                     ));
-                    output.push_str(&format!("ELF File: {}\n", parsed.elf_file.unwrap_or_default()));
+                    output.push_str(&format!(
+                        "ELF File: {}\n",
+                        parsed.elf_file.clone().unwrap_or_default()
+                    ));
                     parse_result.set(output);
                 }
                 Err(e) => {
@@ -246,7 +330,8 @@ pub fn app() -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 match generate_key_pair(&key_name, &password).await {
                     Ok(result) => {
-                        let (public_key, mnemonic): (String, String) = serde_wasm_bindgen::from_value(result).unwrap_or_default();
+                        let (public_key, mnemonic): (String, String) =
+                            serde_wasm_bindgen::from_value(result).unwrap_or_default();
                         generate_key_result.set(format!(
                             "✅ Key generated successfully\nPublic Key: {}\nMnemonic: {}",
                             public_key, mnemonic
@@ -274,7 +359,8 @@ pub fn app() -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 match import_phrase(&mnemonic_phrase, &import_key_name, &import_password).await {
                     Ok(result) => {
-                        let (public_key, mnemonic): (String, String) = serde_wasm_bindgen::from_value(result).unwrap_or_default();
+                        let (public_key, mnemonic): (String, String) =
+                            serde_wasm_bindgen::from_value(result).unwrap_or_default();
                         import_phrase_result.set(format!(
                             "✅ Key imported successfully\nPublic Key: {}\nMnemonic: {}",
                             public_key, mnemonic
@@ -294,12 +380,12 @@ pub fn app() -> Html {
         Callback::from(move |_| {
             match list_keys() {
                 Ok(result) => {
-                    let keys: Vec<String> = serde_wasm_bindgen::from_value(result).unwrap_or_default();
+                    let keys: Vec<String> =
+                        serde_wasm_bindgen::from_value(result).unwrap_or_default();
                     if keys.is_empty() {
                         list_keys_result.set("🔑 No keys found".to_string());
                     } else {
-                        let output = format!("🔑 Available keys:\n{}", keys.join("\n"));
-                        list_keys_result.set(output);
+                        list_keys_result.set(format!("🔑 Available keys:\n{}", keys.join("\n")));
                     }
                 }
                 Err(e) => {
@@ -356,7 +442,9 @@ pub fn app() -> Html {
                     parsed.payload.clone(),
                     parsed.elf_file.clone(),
                     password.to_string(),
-                ).await {
+                )
+                .await
+                {
                     Ok(result) => {
                         let resp: HashMap<String, Value> =
                             serde_wasm_bindgen::from_value(result).unwrap_or_default();
@@ -365,15 +453,19 @@ pub fn app() -> Html {
 
                         let normalize_status = |v: Option<&Value>| -> String {
                             match v {
-                                Some(Value::Bool(true))  => "SUCCESS".into(),
+                                Some(Value::Bool(true)) => "SUCCESS".into(),
                                 Some(Value::Bool(false)) => "FAILED".into(),
                                 Some(Value::String(s)) => {
                                     let up = s.to_uppercase();
-                                    if up == "SUCCESS" || up == "OK" { "SUCCESS".into() }
-                                    else if up == "FAILED" || up == "ERROR" { "FAILED".into() }
-                                    else { "UNKNOWN".into() }
+                                    if up == "SUCCESS" || up == "OK" {
+                                        "SUCCESS".into()
+                                    } else if up == "FAILED" || up == "ERROR" {
+                                        "FAILED".into()
+                                    } else {
+                                        "UNKNOWN".into()
+                                    }
                                 }
-                                _ => "UNKNOWN".into()
+                                _ => "UNKNOWN".into(),
                             }
                         };
 
@@ -382,11 +474,11 @@ pub fn app() -> Html {
                         let proving = get_str("proving_system").unwrap_or("UNKNOWN");
 
                         let proof_verification = normalize_status(
-                            resp.get("proof_verification_status").or(resp.get("proof_verification"))
+                            resp.get("proof_verification_status")
+                                .or(resp.get("proof_verification")),
                         );
-                        let sui_transaction = normalize_status(
-                            resp.get("sui_status").or(resp.get("sui_transaction"))
-                        );
+                        let sui_transaction =
+                            normalize_status(resp.get("sui_status").or(resp.get("sui_transaction")));
 
                         let transaction_digest = get_str("sui_transaction_digest")
                             .or(get_str("transaction_digest"))
@@ -396,26 +488,31 @@ pub fn app() -> Html {
                             .or(get_str("proof_blob_id"))
                             .unwrap_or("");
 
-                        let program_blob_id = get_str("program_blob_id")
-                            .or(get_str("vk_blob_id"))
-                            .unwrap_or("N/A");
+                        let program_blob_id =
+                            get_str("program_blob_id").or(get_str("vk_blob_id")).unwrap_or("N/A");
 
                         let suiscan_link = get_str("suiscan_link").unwrap_or("");
 
-                        let (walrus_proof, walrus_vk) =
-                            if let Some(arr) = resp.get("walruscan_links").and_then(|v| v.as_array()) {
-                                let mut it = arr.iter()
-                                    .filter_map(|v| v.as_str())
-                                    .filter(|s| !s.is_empty() && *s != "N/A");
-                                (it.next().unwrap_or(""), it.next().unwrap_or(""))
-                            } else if let Some(obj) = resp.get("walruscan_links").and_then(|v| v.as_object()) {
-                                (
-                                    obj.get("proof_data").and_then(|v| v.as_str()).unwrap_or(""),
-                                    obj.get("vk").and_then(|v| v.as_str()).unwrap_or("")
-                                )
-                            } else {
-                                ("", "")
-                            };
+                        let (walrus_proof, walrus_vk) = if let Some(arr) =
+                            resp.get("walruscan_links").and_then(|v| v.as_array())
+                        {
+                            let mut it = arr
+                                .iter()
+                                .filter_map(|v| v.as_str())
+                                .filter(|s| !s.is_empty() && *s != "N/A");
+                            (it.next().unwrap_or(""), it.next().unwrap_or(""))
+                        } else if let Some(obj) =
+                            resp.get("walruscan_links").and_then(|v| v.as_object())
+                        {
+                            (
+                                obj.get("proof_data")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or(""),
+                                obj.get("vk").and_then(|v| v.as_str()).unwrap_or(""),
+                            )
+                        } else {
+                            ("", "")
+                        };
 
                         let mut output = String::new();
                         output.push_str("🎯 Proof Submission Results\n");
@@ -465,7 +562,6 @@ pub fn app() -> Html {
             key_name.set(input.value());
         })
     };
-
     let on_import_key_name_input = {
         let import_key_name = import_key_name.clone();
         Callback::from(move |e: InputEvent| {
@@ -473,7 +569,6 @@ pub fn app() -> Html {
             import_key_name.set(input.value());
         })
     };
-
     let on_import_password_input = {
         let import_password = import_password.clone();
         Callback::from(move |e: InputEvent| {
@@ -481,7 +576,6 @@ pub fn app() -> Html {
             import_password.set(input.value());
         })
     };
-
     let on_import_phrase_input = {
         let mnemonic_phrase = mnemonic_phrase.clone();
         Callback::from(move |e: InputEvent| {
@@ -500,6 +594,113 @@ pub fn app() -> Html {
                 mobile_menu_open.set(false);
             }
         })
+    };
+
+    let tab_content: Html = match selected_tab.as_str() {
+        "generate" => html! {
+            <div class="input-group">
+                <h2>{ "Generate Key Pair" }</h2>
+                <div class="form-group">
+                    <label class="form-label">{ "Key Name" }</label>
+                    <input type="text" placeholder="Enter key name"
+                        oninput={on_key_name_input.clone()}
+                        value={(*key_name).clone()} class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">{ "Password" }</label>
+                    <input type="password" placeholder="Enter password"
+                        oninput={on_password_input.clone()}
+                        value={(*password).clone()} class="form-input" />
+                </div>
+                <button class="submit-btn" onclick={on_generate_key}>{ "Generate Key" }</button>
+                <div class="output-box"><pre>{ &(*generate_key_result) }</pre></div>
+            </div>
+        },
+        "import" => html! {
+            <div class="input-group">
+                <h2>{ "Import Mnemonic Phrase" }</h2>
+                <div class="form-group">
+                    <label class="form-label">{ "Mnemonic Phrase" }</label>
+                    <input type="text" placeholder="Enter mnemonic phrase"
+                        oninput={on_import_phrase_input}
+                        value={(*mnemonic_phrase).clone()} class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">{ "Key Name" }</label>
+                    <input type="text" placeholder="Enter key name"
+                        oninput={on_import_key_name_input}
+                        value={(*import_key_name).clone()} class="form-input" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">{ "Password" }</label>
+                    <input type="password" placeholder="Enter password"
+                        oninput={on_import_password_input}
+                        value={(*import_password).clone()} class="form-input" />
+                </div>
+                <button class="submit-btn" onclick={on_import_phrase}>{ "Import Phrase" }</button>
+                <div class="output-box"><pre>{ &(*import_phrase_result) }</pre></div>
+            </div>
+        },
+        "list" => html! {
+            <div class="input-group">
+                <h2>{ "List Keys" }</h2>
+                <button class="submit-btn" onclick={on_list_keys}>{ "Refresh Keys" }</button>
+                <div class="output-box"><pre>{ &(*list_keys_result) }</pre></div>
+            </div>
+        },
+        "send" => html! {
+            <div class="input-group">
+                <h2>{ "Send Proof" }</h2>
+                <div class="form-group">
+                    <label class="form-label">{ "Command" }</label>
+                    <input type="text" placeholder="Enter soundness-cli command"
+                        oninput={on_command_input}
+                        value={(*command).clone()} class="form-input" />
+                </div>
+                <div class="button-group">
+                    <button class="submit-btn" onclick={on_parse}>{ "Parse Command" }</button>
+                    <button class={if *is_sending { "submit-btn loading" } else { "submit-btn" }}
+                        onclick={on_open_password_modal}
+                        disabled={(*parsed_command).key_name.is_none() || *is_sending}>
+                        { if *is_sending { "Sending..." } else { "Send Proof" } }
+                    </button>
+                </div>
+                <div class="output-box">
+                    {
+                        if *is_sending {
+                            html! { <pre>{ "🔍 [Step 1] Analyzing inputs...\n📁 [Step 1.1] Proof: Detected as Walrus Blob ID\n📁 [Step 1.2] Proof value: <loading>\n📁 [Step 1.3] ELF Program: <loading>\n📂 [Step 2] Processing inputs...\n🔧 [Step 3] Building request body...\n✍️ [Step 4] Signing payload...\n🚀 [Step 5] Sending to server..." }</pre> }
+                        } else {
+                            let combined = (*parse_result).clone() + "\n" + &(*send_proof_result);
+                            let html_str = linkify(&combined);
+                            html! { <pre>{ yew::Html::from_html_unchecked(yew::AttrValue::from(html_str)) }</pre> }
+                        }
+                    }
+                </div>
+
+                {
+                    if *show_password_modal {
+                        html! {
+                            <div class="modal active">
+                                <div class="modal-content">
+                                    <div class="modal-header">{ "Enter Password" }</div>
+                                    <div class="form-group">
+                                        <label class="form-label">{ "Password" }</label>
+                                        <input type="password" placeholder="Enter password to decrypt the secret key"
+                                            oninput={on_password_input} value={(*password).clone()} class="form-input" />
+                                    </div>
+                                    <div class="output-box"><pre class="error-text">{ &(*password_error) }</pre></div>
+                                    <div class="modal-footer">
+                                        <button class="cancel-btn" onclick={on_cancel_password}>{ "Cancel" }</button>
+                                        <button class="submit-btn" onclick={on_send_proof}>{ "Submit" }</button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    } else { html!{} }
+                }
+            </div>
+        },
+        _ => html! { <div>{ "Invalid tab" }</div> },
     };
 
     html! {
@@ -524,98 +725,17 @@ pub fn app() -> Html {
             </nav>
 
             <main class="main-content">
-                {
-                    match selected_tab.as_str() {
-                        "generate" => html! {
-                            <div class="input-group">
-                                <h2>{ "Generate Key Pair" }</h2>
-                                <div class="form-group">
-                                    <label class="form-label">{ "Key Name" }</label>
-                                    <input type="text" placeholder="Enter key name" oninput={on_key_name_input.clone()} value={(*key_name).clone()} class="form-input" />
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">{ "Password" }</label>
-                                    <input type="password" placeholder="Enter password" oninput={on_password_input.clone()} value={(*password).clone()} class="form-input" />
-                                </div>
-                                <button class="submit-btn" onclick={on_generate_key}>{ "Generate Key" }</button>
-                                <div class="output-box"><pre>{ &(*generate_key_result) }</pre></div>
-                            </div>
-                        },
-                        "import" => html! {
-                            <div class="input-group">
-                                <h2>{ "Import Mnemonic Phrase" }</h2>
-                                <div class="form-group">
-                                    <label class="form-label">{ "Mnemonic Phrase" }</label>
-                                    <input type="text" placeholder="Enter mnemonic phrase" oninput={on_import_phrase_input} value={(*mnemonic_phrase).clone()} class="form-input" />
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">{ "Key Name" }</label>
-                                    <input type="text" placeholder="Enter key name" oninput={on_import_key_name_input} value={(*import_key_name).clone()} class="form-input" />
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">{ "Password" }</label>
-                                    <input type="password" placeholder="Enter password" oninput={on_import_password_input} value={(*import_password).clone()} class="form-input" />
-                                </div>
-                                <button class="submit-btn" onclick={on_import_phrase}>{ "Import Phrase" }</button>
-                                <div class="output-box"><pre>{ &(*import_phrase_result) }</pre></div>
-                            </div>
-                        },
-                        "list" => html! {
-                            <div class="input-group">
-                                <h2>{ "List Keys" }</h2>
-                                <button class="submit-btn" onclick={on_list_keys}>{ "Refresh Keys" }</button>
-                                <div class="output-box"><pre>{ &(*list_keys_result) }</pre></div>
-                            </div>
-                        },
-                        "send" => html! {
-                            <div class="input-group">
-                                <h2>{ "Send Proof" }</h2>
-                                <div class="form-group">
-                                    <label class="form-label">{ "Command" }</label>
-                                    <input type="text" placeholder="Enter soundness-cli command" oninput={on_command_input} value={(*command).clone()} class="form-input" />
-                                </div>
-                                <div class="button-group">
-                                    <button class="submit-btn" onclick={on_parse}>{ "Parse Command" }</button>
-                                    <button class={if *is_sending { "submit-btn loading" } else { "submit-btn" }} onclick={on_open_password_modal} disabled={(*parsed_command).key_name.is_none() || *is_sending}>
-                                        { if *is_sending { "Sending..." } else { "Send Proof" } }
-                                    </button>
-                                </div>
-                                <div class="output-box">
-                                {
-                                    if *is_sending {
-                                        html! { <pre>{ "🔍 [Step 1] Analyzing inputs...\n📁 [Step 1.1] Proof: Detected as Walrus Blob ID\n📁 [Step 1.2] Proof value: <loading>\n📁 [Step 1.3] ELF Program: <loading>\n📂 [Step 2] Processing inputs...\n🔧 [Step 3] Building request body...\n✍️ [Step 4] Signing payload...\n🚀 [Step 5] Sending to server..." }</pre> }
-                                    } else {
-                                        let combined = (*parse_result).clone() + "\n" + &(*send_proof_result);
-                                        let html_str = linkify(&combined);
-                                        html! { <pre>{ yew::Html::from_html_unchecked(yew::AttrValue::from(html_str)) }</pre> }
-                                    }
-                                }
-                                </div>
-                                {
-                                    if *show_password_modal {
-                                        html! {
-                                            <div class="modal active">
-                                                <div class="modal-content">
-                                                    <div class="modal-header">{ "Enter Password" }</div>
-                                                    <div class="form-group">
-                                                        <label class="form-label">{ "Password" }</label>
-                                                        <input type="password" placeholder="Enter password to decrypt the secret key" oninput={on_password_input} value={(*password).clone()} class="form-input" />
-                                                    </div>
-                                                    <div class="output-box"><pre class="error-text">{ &(*password_error) }</pre></div>
-                                                    <div class="modal-footer">
-                                                        <button class="cancel-btn" onclick={on_cancel_password}>{ "Cancel" }</button>
-                                                        <button class="submit-btn" onclick={on_send_proof}>{ "Submit" }</button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        }
-                                    } else { html!{} }
-                                }
-                            </div>
-                        },
-                        _ => html! { <div>{ "Invalid tab" }</div> },
-                    }
-                }
+                { tab_content }
+
+                <div class="role-card">
+                  <div class="role-left">
+                    <div class="role-title">
+                      { "Today's Role" } <span class="role-badge">{ " rotates daily" }</span>
+                    </div>
+                    <div class="role-date">{ (*today_date).clone() }</div>
+                  </div>
+                  <div class="role-name">{ (*today_role).clone() }</div>
+                </div>
             </main>
 
             <footer class="app-footer">

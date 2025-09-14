@@ -10,22 +10,19 @@
     <div id="app-root"></div>
 
     <script>
+      // Proxy ke /api/soundness-proxy. Jangan throw agar Rust bisa render rapih.
       window.sendProofViaJs = async function (...args) {
         const isJsonish = v =>
-          (typeof v === "string" && v.trim().startsWith("{")) ||
-          typeof v === "object";
+          (typeof v === "string" && v.trim().startsWith("{")) || typeof v === "object";
         const isApiPath = v =>
           typeof v === "string" && (/^\/?api\//.test(v) || v.includes("/api/"));
         const isBigToken = v =>
-          typeof v === "string" &&
-          /^[A-Za-z0-9+/_=-]{16,}$/.test(v);
+          typeof v === "string" && /^[A-Za-z0-9+/_=-]{16,}$/.test(v);
 
         let payload = args.find(isJsonish);
         let apiPath = args.find(isApiPath) || "/api/soundness-proxy";
 
-        const bigs = args.filter(
-          v => isBigToken(v) && v !== apiPath && v !== payload
-        );
+        const bigs = args.filter(v => isBigToken(v) && v !== apiPath && v !== payload);
         let signature = bigs[0];
         let publicKey = bigs[1];
 
@@ -36,29 +33,17 @@
 
         const res = await fetch(apiPath, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          },
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
           body: JSON.stringify({ body: payload, signature, publicKey })
         });
 
         const text = await res.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          data = { status: "RAW", message: text };
-        }
+        let data; try { data = JSON.parse(text); } catch { data = { status: "RAW", message: text }; }
 
-        // jangan throw → biar Rust bisa render rapih
         if (!res.ok) {
           return {
             status: "SERVER_ERROR",
-            message:
-              data?.message ||
-              res.statusText ||
-              "Soundness server returned an error",
+            message: data?.message || res.statusText || "Soundness server returned an error",
             server_status: res.status,
             server_response: data
           };
@@ -68,8 +53,24 @@
     </script>
 
     <script type="module">
-      import init from "/pkg/soundness_tui.js";
-      init().catch(e => console.error("WASM init failed:", e));
+      (async () => {
+        try {
+          // absolute path → paling stabil di Vercel dev
+          const initMod = await import("/pkg/soundness_tui.js");
+          const init = initMod.default || initMod;
+          await init();
+          console.log("🎯 WebAssembly module loaded");
+        } catch (e) {
+          console.error("WASM init failed:", e);
+          const box = document.createElement("div");
+          box.className = "output-box";
+          box.style.maxHeight = "none";
+          box.style.margin = "1rem";
+          box.innerHTML = `<div class="error-text"><strong>WASM init failed</strong></div>
+<pre>${(e && e.message) ? e.message : String(e)}</pre>`;
+          document.getElementById("app-root")?.appendChild(box);
+        }
+      })();
     </script>
   </body>
 </html>
