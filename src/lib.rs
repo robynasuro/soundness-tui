@@ -52,22 +52,34 @@ fn linkify(text: &str) -> String {
 /* -------- role rotation (anchor-based) -------- */
 const ROLES: [&str; 5] = ["Zippy", "Bloop", "Blu", "Wava", "Echo"];
 const ANCHOR_Y: u32 = 2025; // 2025-09-13 → Wava
-const ANCHOR_M0: i32 = 8;   // month is 0-based (8 == September)
+const ANCHOR_M0: i32 = 8;   // September (0-based)
 const ANCHOR_D: i32 = 13;
 const ANCHOR_ROLE_IDX: usize = 3; // Wava
 
-fn days_since_anchor_local() -> i64 {
+fn today_midnight_ms_local() -> f64 {
     let now = JsDate::new_0();
-    let today_midnight = JsDate::new_with_year_month_day(
+    JsDate::new_with_year_month_day(
         now.get_full_year() as u32,
         now.get_month() as i32,
         now.get_date() as i32,
     )
-    .get_time();
+    .get_time()
+}
 
+fn next_midnight_ms_local() -> f64 {
+    let now = JsDate::new_0();
+    JsDate::new_with_year_month_day(
+        now.get_full_year() as u32,
+        now.get_month() as i32,
+        now.get_date() as i32 + 1,
+    )
+    .get_time()
+}
+
+fn days_since_anchor_local() -> i64 {
+    let today_midnight = today_midnight_ms_local();
     let anchor_midnight =
         JsDate::new_with_year_month_day(ANCHOR_Y, ANCHOR_M0, ANCHOR_D).get_time();
-
     ((today_midnight - anchor_midnight) / 86_400_000.0).floor() as i64
 }
 
@@ -94,6 +106,45 @@ fn role_for_today() -> (String, String) {
     (role, date_str)
 }
 
+fn fmt_hms(ms: f64) -> String {
+    let mut secs = (ms / 1000.0).floor();
+    if secs < 0.0 { secs = 0.0; }
+    let s = secs as i64;
+    let h = s / 3600;
+    let m = (s % 3600) / 60;
+    let ss = s % 60;
+    format!("{:02}:{:02}:{:02}", h, m, ss)
+}
+
+fn fmt_day_short(dow: u32) -> &'static str {
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dow as usize]
+}
+fn fmt_month_short(m0: u32) -> &'static str {
+    ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m0 as usize]
+}
+
+fn upcoming_n(n: usize) -> Vec<(String, String)> {
+    let now = JsDate::new_0();
+    let y = now.get_full_year() as u32;
+    let m0 = now.get_month() as i32;
+    let d0 = now.get_date() as i32;
+
+    (1..=n)
+        .map(|i| {
+            let d = JsDate::new_with_year_month_day(y, m0, d0 + i as i32);
+            let label = format!(
+                "{}, {} {}",
+                fmt_day_short(d.get_day()),
+                fmt_month_short(d.get_month()),
+                d.get_date()
+            );
+            let days = days_since_anchor_local() + i as i64;
+            let idx = ((ANCHOR_ROLE_IDX as i64 + days).rem_euclid(5)) as usize;
+            (label, ROLES[idx].to_string())
+        })
+        .collect()
+}
+
 /* -------- CLI parser -------- */
 #[wasm_bindgen]
 pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
@@ -116,83 +167,43 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
         };
 
         match key {
-            "soundness-cli" | "send" => {
-                i += 1;
-            }
+            "soundness-cli" | "send" => { i += 1; }
             "--proof-file" => {
-                if let Some(v) = value {
-                    parsed.proof_file = Some(v);
-                    i += 1;
-                } else if i + 1 < args.len() {
-                    parsed.proof_file = Some(args[i + 1].clone());
-                    i += 2;
-                } else {
-                    return Err(JsValue::from_str("Missing value for --proof-file"));
-                }
+                if let Some(v) = value { parsed.proof_file = Some(v); i += 1; }
+                else if i + 1 < args.len() { parsed.proof_file = Some(args[i + 1].clone()); i += 2; }
+                else { return Err(JsValue::from_str("Missing value for --proof-file")); }
             }
             "--key-name" => {
-                if let Some(v) = value {
-                    parsed.key_name = Some(v.trim().to_string());
-                    i += 1;
-                } else if i + 1 < args.len() {
-                    parsed.key_name = Some(args[i + 1].trim().to_string());
-                    i += 2;
-                } else {
-                    return Err(JsValue::from_str("Missing value for --key-name"));
-                }
+                if let Some(v) = value { parsed.key_name = Some(v.trim().to_string()); i += 1; }
+                else if i + 1 < args.len() { parsed.key_name = Some(args[i + 1].trim().to_string()); i += 2; }
+                else { return Err(JsValue::from_str("Missing value for --key-name")); }
             }
             "--proving-system" => {
-                if let Some(v) = value {
-                    parsed.proving_system = Some(v);
-                    i += 1;
-                } else if i + 1 < args.len() {
-                    parsed.proving_system = Some(args[i + 1].clone());
-                    i += 2;
-                } else {
-                    return Err(JsValue::from_str("Missing value for --proving-system"));
-                }
+                if let Some(v) = value { parsed.proving_system = Some(v); i += 1; }
+                else if i + 1 < args.len() { parsed.proving_system = Some(args[i + 1].clone()); i += 2; }
+                else { return Err(JsValue::from_str("Missing value for --proving-system")); }
             }
             "--game" => {
-                if let Some(v) = value {
-                    parsed.game = Some(v);
-                    i += 1;
-                } else if i + 1 < args.len() {
-                    parsed.game = Some(args[i + 1].clone());
-                    i += 2;
-                } else {
-                    return Err(JsValue::from_str("Missing value for --game"));
-                }
+                if let Some(v) = value { parsed.game = Some(v); i += 1; }
+                else if i + 1 < args.len() { parsed.game = Some(args[i + 1].clone()); i += 2; }
+                else { return Err(JsValue::from_str("Missing value for --game")); }
             }
             "--payload" => {
                 if let Some(v) = value {
-                    if serde_json::from_str::<Value>(&v).is_ok() {
-                        parsed.payload = Some(v);
-                    } else {
-                        return Err(JsValue::from_str("Invalid JSON for --payload"));
-                    }
+                    if serde_json::from_str::<Value>(&v).is_ok() { parsed.payload = Some(v); }
+                    else { return Err(JsValue::from_str("Invalid JSON for --payload")); }
                     i += 1;
                 } else if i + 1 < args.len() {
                     let v = args[i + 1].clone();
-                    if serde_json::from_str::<Value>(&v).is_ok() {
-                        parsed.payload = Some(v);
-                    } else {
-                        return Err(JsValue::from_str("Invalid JSON for --payload"));
-                    }
+                    if serde_json::from_str::<Value>(&v).is_ok() { parsed.payload = Some(v); }
+                    else { return Err(JsValue::from_str("Invalid JSON for --payload")); }
                     i += 2;
-                } else {
-                    return Err(JsValue::from_str("Missing value for --payload"));
-                }
+                } else { return Err(JsValue::from_str("Missing value for --payload")); }
             }
             "--elf-file" => {
-                if let Some(v) = value {
-                    parsed.elf_file = Some(v);
-                    i += 1;
-                } else if i + 1 < args.len() {
-                    parsed.elf_file = Some(args[i + 1].clone());
-                    i += 2;
-                } else {
-                    return Err(JsValue::from_str("Missing value for --elf-file"));
-                }
+                if let Some(v) = value { parsed.elf_file = Some(v); i += 1; }
+                else if i + 1 < args.len() { parsed.elf_file = Some(args[i + 1].clone()); i += 2; }
+                else { return Err(JsValue::from_str("Missing value for --elf-file")); }
             }
             _ => {
                 log(&format!("Unknown argument: {}", arg));
@@ -230,23 +241,55 @@ pub fn app() -> Html {
     let password_error = use_state(|| String::new());
     let mobile_menu_open = use_state(|| false);
 
+    // role card state
     let today_role = use_state(|| String::new());
     let today_date = use_state(|| String::new());
+    let countdown_text = use_state(|| String::new());
+    let upcoming = use_state(|| Vec::<(String, String)>::new());
+
     {
         let today_role = today_role.clone();
         let today_date = today_date.clone();
+        let countdown_text = countdown_text.clone();
+        let upcoming = upcoming.clone();
+
         use_effect_with((), move |_| {
-            let set_both = {
+            let set_all = {
                 let today_role = today_role.clone();
                 let today_date = today_date.clone();
+                let countdown_text = countdown_text.clone();
+                let upcoming = upcoming.clone();
+
                 move || {
                     let (role, date) = role_for_today();
                     today_role.set(role);
                     today_date.set(date);
+                    upcoming.set(upcoming_n(4));
+
+                    let now_ms = JsDate::new_0().get_time();
+                    let next_ms = next_midnight_ms_local();
+                    countdown_text.set(format!("⏳ Next rotation in {}", fmt_hms(next_ms - now_ms)));
                 }
             };
-            set_both();
-            let handle = Interval::new(60_000, move || set_both());
+
+            set_all();
+
+            let mut next_ms = next_midnight_ms_local();
+            let handle = Interval::new(1_000, move || {
+                let now = JsDate::new_0().get_time();
+                let remaining = next_ms - now;
+                if remaining <= 0.0 {
+                    let (role, date) = role_for_today();
+                    today_role.set(role);
+                    today_date.set(date);
+                    upcoming.set(upcoming_n(4));
+                    next_ms = next_midnight_ms_local();
+                    countdown_text.set(format!("⏳ Next rotation in {}", fmt_hms(next_ms - JsDate::new_0().get_time())));
+                } else {
+                    countdown_text.set(format!("⏳ Next rotation in {}", fmt_hms(remaining)));
+                }
+            });
+
             move || drop(handle)
         });
     }
@@ -728,13 +771,32 @@ pub fn app() -> Html {
                 { tab_content }
 
                 <div class="role-card">
-                  <div class="role-left">
-                    <div class="role-title">
-                      { "Today's Role" } <span class="role-badge">{ " rotates daily" }</span>
+                    <div class="role-left">
+                        <div class="role-title">
+                            { "Today's Role" } <span class="role-badge">{ "rotates daily" }</span>
+                        </div>
+                        <div class="role-date">{ (*today_date).clone() }</div>
+
+                        <span class="role-current">
+                            <span class="role-dot"></span>
+                            <span class="role-text">{ (*today_role).clone() }</span>
+                        </span>
+
+                        <div class="countdown">{ (*countdown_text).clone() }</div>
                     </div>
-                    <div class="role-date">{ (*today_date).clone() }</div>
-                  </div>
-                  <div class="role-name">{ (*today_role).clone() }</div>
+
+                    <div class="upcoming">
+                        <div class="upcoming-title">{ "Upcoming" }</div>
+                        <ul class="upcoming-list">
+                            { for (*upcoming).iter().map(|(d, r)| html! {
+                                <li>
+                                    <span class="u-date">{ d }</span>
+                                    <span class="u-dot">{"•"}</span>
+                                    <span class="u-role">{ r }</span>
+                                </li>
+                            }) }
+                        </ul>
+                    </div>
                 </div>
             </main>
 
