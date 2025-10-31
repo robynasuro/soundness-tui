@@ -44,7 +44,10 @@ fn linkify(text: &str) -> String {
     let re = Regex::new(r#"https?://[^\s<>"']+"#).unwrap();
     re.replace_all(text, |caps: &regex::Captures| {
         let url = &caps[0];
-        format!(r#"<a href="{0}" target="_blank" rel="noopener noreferrer">{0}</a>"#, url)
+        format!(
+            r#"<a href="{0}" target="_blank" rel="noopener noreferrer">{0}</a>"#,
+            url
+        )
     })
     .into_owned()
 }
@@ -52,7 +55,7 @@ fn linkify(text: &str) -> String {
 /* -------- role rotation (anchor-based) -------- */
 const ROLES: [&str; 5] = ["Zippy", "Bloop", "Blu", "Wava", "Echo"];
 const ANCHOR_Y: u32 = 2025; // 2025-09-13 → Wava
-const ANCHOR_M0: i32 = 8;   // September (0-based)
+const ANCHOR_M0: i32 = 8; // September (0-based)
 const ANCHOR_D: i32 = 13;
 const ANCHOR_ROLE_IDX: usize = 3; // Wava
 
@@ -93,9 +96,20 @@ fn role_for_today() -> (String, String) {
         "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
     ][now.get_day() as usize];
     let month = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ][now.get_month() as usize];
+
     let date_str = format!(
         "{}, {} {}, {}",
         weekday,
@@ -108,7 +122,9 @@ fn role_for_today() -> (String, String) {
 
 fn fmt_hms(ms: f64) -> String {
     let mut secs = (ms / 1000.0).floor();
-    if secs < 0.0 { secs = 0.0; }
+    if secs < 0.0 {
+        secs = 0.0;
+    }
     let s = secs as i64;
     let h = s / 3600;
     let m = (s % 3600) / 60;
@@ -117,10 +133,12 @@ fn fmt_hms(ms: f64) -> String {
 }
 
 fn fmt_day_short(dow: u32) -> &'static str {
-    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dow as usize]
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dow as usize]
 }
 fn fmt_month_short(m0: u32) -> &'static str {
-    ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m0 as usize]
+    [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ][m0 as usize]
 }
 
 fn upcoming_n(n: usize) -> Vec<(String, String)> {
@@ -138,14 +156,28 @@ fn upcoming_n(n: usize) -> Vec<(String, String)> {
                 fmt_month_short(d.get_month()),
                 d.get_date()
             );
-            let days = days_since_anchor_local() + i as i64;
-            let idx = ((ANCHOR_ROLE_IDX as i64 + days).rem_euclid(5)) as usize;
+
+            let future_days = days_since_anchor_local() + i as i64;
+            let idx = ((ANCHOR_ROLE_IDX as i64 + future_days).rem_euclid(5)) as usize;
             (label, ROLES[idx].to_string())
         })
         .collect()
 }
 
 /* -------- CLI parser -------- */
+/*
+   Target: parse input seperti:
+   soundness-cli send \
+     -p abcDEFwalrusBlobID \
+     -k my_key \
+     -s sp1 \
+     -g 8queens \
+     -d '{"moves":[...]}'
+     -l programBlob
+
+   Juga masih support versi lama:
+     --proof-file xxx --key-name yyy --proving-system sp1 --game 8queens --payload {...} --elf-file zzz
+*/
 #[wasm_bindgen]
 pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
     log(&format!("Parsing command: {}", command));
@@ -159,54 +191,151 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
         let arg = &args[i];
         log(&format!("Processing argument {}: {}", i, arg));
 
-        let (key, value) = if arg.contains('=') {
-            let parts: Vec<&str> = arg.splitn(2, '=').collect();
-            (parts[0], parts.get(1).map(|s| s.to_string()))
-        } else {
-            (arg.as_str(), None)
-        };
+        // handle --key=value style first
+        if arg.starts_with("--") && arg.contains('=') {
+            let mut parts = arg.splitn(2, '=');
+            let flag = parts.next().unwrap_or_default();
+            let val = parts.next().unwrap_or_default().to_string();
+            match flag {
+                "--proof-file" => parsed.proof_file = Some(val),
+                "--key-name" => parsed.key_name = Some(val.trim().to_string()),
+                "--proving-system" => parsed.proving_system = Some(val),
+                "--game" => parsed.game = Some(val),
+                "--payload" => {
+                    if serde_json::from_str::<Value>(&val).is_ok() {
+                        parsed.payload = Some(val);
+                    } else {
+                        return Err(JsValue::from_str("Invalid JSON for --payload"));
+                    }
+                }
+                "--elf-file" => parsed.elf_file = Some(val),
+                _ => {
+                    // unknown long flag w/ '='
+                    return Err(JsValue::from_str(&format!("Unknown argument: {}", arg)));
+                }
+            }
+            i += 1;
+            continue;
+        }
 
-        match key {
-            "soundness-cli" | "send" => { i += 1; }
+        // match switches one-by-one
+        match arg.as_str() {
+            "soundness-cli" | "send" => {
+                i += 1;
+            }
+
+            // long flags that get value from next token
             "--proof-file" => {
-                if let Some(v) = value { parsed.proof_file = Some(v); i += 1; }
-                else if i + 1 < args.len() { parsed.proof_file = Some(args[i + 1].clone()); i += 2; }
-                else { return Err(JsValue::from_str("Missing value for --proof-file")); }
+                if i + 1 < args.len() {
+                    parsed.proof_file = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for --proof-file"));
+                }
             }
             "--key-name" => {
-                if let Some(v) = value { parsed.key_name = Some(v.trim().to_string()); i += 1; }
-                else if i + 1 < args.len() { parsed.key_name = Some(args[i + 1].trim().to_string()); i += 2; }
-                else { return Err(JsValue::from_str("Missing value for --key-name")); }
+                if i + 1 < args.len() {
+                    parsed.key_name = Some(args[i + 1].trim().to_string());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for --key-name"));
+                }
             }
             "--proving-system" => {
-                if let Some(v) = value { parsed.proving_system = Some(v); i += 1; }
-                else if i + 1 < args.len() { parsed.proving_system = Some(args[i + 1].clone()); i += 2; }
-                else { return Err(JsValue::from_str("Missing value for --proving-system")); }
+                if i + 1 < args.len() {
+                    parsed.proving_system = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for --proving-system"));
+                }
             }
             "--game" => {
-                if let Some(v) = value { parsed.game = Some(v); i += 1; }
-                else if i + 1 < args.len() { parsed.game = Some(args[i + 1].clone()); i += 2; }
-                else { return Err(JsValue::from_str("Missing value for --game")); }
+                if i + 1 < args.len() {
+                    parsed.game = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for --game"));
+                }
             }
             "--payload" => {
-                if let Some(v) = value {
-                    if serde_json::from_str::<Value>(&v).is_ok() { parsed.payload = Some(v); }
-                    else { return Err(JsValue::from_str("Invalid JSON for --payload")); }
-                    i += 1;
-                } else if i + 1 < args.len() {
+                if i + 1 < args.len() {
                     let v = args[i + 1].clone();
-                    if serde_json::from_str::<Value>(&v).is_ok() { parsed.payload = Some(v); }
-                    else { return Err(JsValue::from_str("Invalid JSON for --payload")); }
+                    if serde_json::from_str::<Value>(&v).is_ok() {
+                        parsed.payload = Some(v);
+                    } else {
+                        return Err(JsValue::from_str("Invalid JSON for --payload"));
+                    }
                     i += 2;
-                } else { return Err(JsValue::from_str("Missing value for --payload")); }
+                } else {
+                    return Err(JsValue::from_str("Missing value for --payload"));
+                }
             }
             "--elf-file" => {
-                if let Some(v) = value { parsed.elf_file = Some(v); i += 1; }
-                else if i + 1 < args.len() { parsed.elf_file = Some(args[i + 1].clone()); i += 2; }
-                else { return Err(JsValue::from_str("Missing value for --elf-file")); }
+                if i + 1 < args.len() {
+                    parsed.elf_file = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for --elf-file"));
+                }
             }
+
+            // short flags from new CLI (-p, -k, -s, -g, -d, -l)
+            "-p" => {
+                if i + 1 < args.len() {
+                    parsed.proof_file = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for -p / --proof-file"));
+                }
+            }
+            "-k" => {
+                if i + 1 < args.len() {
+                    parsed.key_name = Some(args[i + 1].trim().to_string());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for -k / --key-name"));
+                }
+            }
+            "-s" => {
+                if i + 1 < args.len() {
+                    parsed.proving_system = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for -s / --proving-system"));
+                }
+            }
+            "-g" => {
+                if i + 1 < args.len() {
+                    parsed.game = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for -g / --game"));
+                }
+            }
+            "-d" => {
+                if i + 1 < args.len() {
+                    let v = args[i + 1].clone();
+                    if serde_json::from_str::<Value>(&v).is_ok() {
+                        parsed.payload = Some(v);
+                    } else {
+                        return Err(JsValue::from_str("Invalid JSON for -d / --payload"));
+                    }
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for -d / --payload"));
+                }
+            }
+            "-l" => {
+                if i + 1 < args.len() {
+                    parsed.elf_file = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    return Err(JsValue::from_str("Missing value for -l / --elf-file"));
+                }
+            }
+
+            // unknown token: stop and complain
             _ => {
-                log(&format!("Unknown argument: {}", arg));
                 return Err(JsValue::from_str(&format!("Unknown argument: {}", arg)));
             }
         }
@@ -218,30 +347,35 @@ pub fn parse_cli_command(command: &str) -> Result<JsValue, JsValue> {
 
 #[wasm_bindgen]
 pub fn get_version() -> String {
-    "v0.1.0".to_string()
+    "v0.2.0".to_string()
 }
 
 #[function_component(App)]
 pub fn app() -> Html {
+    // -------- state --------
     let command = use_state(|| String::new());
     let parse_result = use_state(|| String::new());
+
     let generate_key_result = use_state(|| String::new());
     let import_phrase_result = use_state(|| String::new());
     let list_keys_result = use_state(|| String::new());
     let send_proof_result = use_state(|| String::new());
+
     let key_name = use_state(|| String::new());
     let password = use_state(|| String::new());
     let import_key_name = use_state(|| String::new());
     let import_password = use_state(|| String::new());
     let mnemonic_phrase = use_state(|| String::new());
+
     let selected_tab = use_state(|| String::from("send"));
     let parsed_command = use_state(|| ParsedCommand::default());
     let is_sending = use_state(|| false);
+
     let show_password_modal = use_state(|| false);
     let password_error = use_state(|| String::new());
     let mobile_menu_open = use_state(|| false);
 
-    // role card state
+    // -------- role card state --------
     let today_role = use_state(|| String::new());
     let today_date = use_state(|| String::new());
     let countdown_text = use_state(|| String::new());
@@ -264,29 +398,43 @@ pub fn app() -> Html {
                     let (role, date) = role_for_today();
                     today_role.set(role);
                     today_date.set(date);
+
                     upcoming.set(upcoming_n(4));
 
                     let now_ms = JsDate::new_0().get_time();
                     let next_ms = next_midnight_ms_local();
-                    countdown_text.set(format!("⏳ Next rotation in {}", fmt_hms(next_ms - now_ms)));
+                    countdown_text.set(format!(
+                        "⏳  Next rotation in {}",
+                        fmt_hms(next_ms - now_ms)
+                    ));
                 }
             };
 
+            // set initial
             set_all();
 
+            // tick each second
             let mut next_ms = next_midnight_ms_local();
             let handle = Interval::new(1_000, move || {
                 let now = JsDate::new_0().get_time();
                 let remaining = next_ms - now;
                 if remaining <= 0.0 {
+                    // rollover day
                     let (role, date) = role_for_today();
                     today_role.set(role);
                     today_date.set(date);
                     upcoming.set(upcoming_n(4));
+
                     next_ms = next_midnight_ms_local();
-                    countdown_text.set(format!("⏳ Next rotation in {}", fmt_hms(next_ms - JsDate::new_0().get_time())));
+                    countdown_text.set(format!(
+                        "⏳  Next rotation in {}",
+                        fmt_hms(next_ms - JsDate::new_0().get_time())
+                    ));
                 } else {
-                    countdown_text.set(format!("⏳ Next rotation in {}", fmt_hms(remaining)));
+                    countdown_text.set(format!(
+                        "⏳  Next rotation in {}",
+                        fmt_hms(remaining)
+                    ));
                 }
             });
 
@@ -294,6 +442,7 @@ pub fn app() -> Html {
         });
     }
 
+    // -------- handlers --------
     let toggle_mobile_menu = {
         let mobile_menu_open = mobile_menu_open.clone();
         Callback::from(move |_| {
@@ -313,12 +462,14 @@ pub fn app() -> Html {
         let command = command.clone();
         let parse_result = parse_result.clone();
         let parsed_command = parsed_command.clone();
+
         Callback::from(move |_| {
             match parse_cli_command(&command) {
                 Ok(result) => {
                     let parsed: ParsedCommand =
                         serde_wasm_bindgen::from_value(result).unwrap_or_default();
                     parsed_command.set(parsed.clone());
+
                     let mut output = String::new();
                     output.push_str("Parsed command:\n");
                     output.push_str(&format!(
@@ -333,7 +484,10 @@ pub fn app() -> Html {
                         "Proving System: {}\n",
                         parsed.proving_system.clone().unwrap_or_default()
                     ));
-                    output.push_str(&format!("Game: {}\n", parsed.game.clone().unwrap_or_default()));
+                    output.push_str(&format!(
+                        "Game: {}\n",
+                        parsed.game.clone().unwrap_or_default()
+                    ));
                     output.push_str(&format!(
                         "Payload: {}\n",
                         parsed
@@ -341,9 +495,9 @@ pub fn app() -> Html {
                             .as_ref()
                             .map(|p| {
                                 if serde_json::from_str::<Value>(p).is_ok() {
-                                    "✅ Valid JSON".to_string()
+                                    "✅  Valid JSON".to_string()
                                 } else {
-                                    "❌ Invalid JSON".to_string()
+                                    "❌  Invalid JSON".to_string()
                                 }
                             })
                             .unwrap_or_default()
@@ -352,11 +506,14 @@ pub fn app() -> Html {
                         "ELF File: {}\n",
                         parsed.elf_file.clone().unwrap_or_default()
                     ));
+
                     parse_result.set(output);
                 }
                 Err(e) => {
-                    let error = e.as_string().unwrap_or_else(|| "Unknown error".to_string());
-                    parse_result.set(format!("❌ Error: {}", error));
+                    let error = e
+                        .as_string()
+                        .unwrap_or_else(|| "Unknown error".to_string());
+                    parse_result.set(format!("❌  Error: {}", error));
                 }
             }
         })
@@ -366,23 +523,28 @@ pub fn app() -> Html {
         let generate_key_result = generate_key_result.clone();
         let key_name = key_name.clone();
         let password = password.clone();
+
         Callback::from(move |_| {
             let key_name = key_name.clone();
             let password = password.clone();
             let generate_key_result = generate_key_result.clone();
+
             wasm_bindgen_futures::spawn_local(async move {
                 match generate_key_pair(&key_name, &password).await {
                     Ok(result) => {
                         let (public_key, mnemonic): (String, String) =
                             serde_wasm_bindgen::from_value(result).unwrap_or_default();
                         generate_key_result.set(format!(
-                            "✅ Key generated successfully\nPublic Key: {}\nMnemonic: {}",
+                            "✅  Key generated successfully\nPublic Key: {}\nMnemonic: {}",
                             public_key, mnemonic
                         ));
                     }
                     Err(e) => {
-                        let error = e.as_string().unwrap_or_else(|| "Unknown error".to_string());
-                        generate_key_result.set(format!("❌ Error: {}", error));
+                        let error = e
+                            .as_string()
+                            .unwrap_or_else(|| "Unknown error".to_string());
+                        generate_key_result
+                            .set(format!("❌  Error: {}", error));
                     }
                 }
             });
@@ -394,24 +556,29 @@ pub fn app() -> Html {
         let import_key_name = import_key_name.clone();
         let import_password = import_password.clone();
         let mnemonic_phrase = mnemonic_phrase.clone();
+
         Callback::from(move |_| {
             let import_key_name = import_key_name.clone();
             let import_password = import_password.clone();
             let mnemonic_phrase = mnemonic_phrase.clone();
             let import_phrase_result = import_phrase_result.clone();
+
             wasm_bindgen_futures::spawn_local(async move {
                 match import_phrase(&mnemonic_phrase, &import_key_name, &import_password).await {
                     Ok(result) => {
                         let (public_key, mnemonic): (String, String) =
                             serde_wasm_bindgen::from_value(result).unwrap_or_default();
                         import_phrase_result.set(format!(
-                            "✅ Key imported successfully\nPublic Key: {}\nMnemonic: {}",
+                            "✅  Key imported successfully\nPublic Key: {}\nMnemonic: {}",
                             public_key, mnemonic
                         ));
                     }
                     Err(e) => {
-                        let error = e.as_string().unwrap_or_else(|| "Unknown error".to_string());
-                        import_phrase_result.set(format!("❌ Error: {}", error));
+                        let error = e
+                            .as_string()
+                            .unwrap_or_else(|| "Unknown error".to_string());
+                        import_phrase_result
+                            .set(format!("❌  Error: {}", error));
                     }
                 }
             });
@@ -420,6 +587,7 @@ pub fn app() -> Html {
 
     let on_list_keys = {
         let list_keys_result = list_keys_result.clone();
+
         Callback::from(move |_| {
             match list_keys() {
                 Ok(result) => {
@@ -428,12 +596,15 @@ pub fn app() -> Html {
                     if keys.is_empty() {
                         list_keys_result.set("🔑 No keys found".to_string());
                     } else {
-                        list_keys_result.set(format!("🔑 Available keys:\n{}", keys.join("\n")));
+                        list_keys_result
+                            .set(format!("🔑 Available keys:\n{}", keys.join("\n")));
                     }
                 }
                 Err(e) => {
-                    let error = e.as_string().unwrap_or_else(|| "Unknown error".to_string());
-                    list_keys_result.set(format!("❌ Error: {}", error));
+                    let error = e
+                        .as_string()
+                        .unwrap_or_else(|| "Unknown error".to_string());
+                    list_keys_result.set(format!("❌  Error: {}", error));
                 }
             }
         })
@@ -443,6 +614,7 @@ pub fn app() -> Html {
         let show_password_modal = show_password_modal.clone();
         let password = password.clone();
         let password_error = password_error.clone();
+
         Callback::from(move |_| {
             show_password_modal.set(true);
             password.set(String::new());
@@ -465,22 +637,38 @@ pub fn app() -> Html {
         let is_sending = is_sending.clone();
         let show_password_modal = show_password_modal.clone();
         let password_error = password_error.clone();
+
         Callback::from(move |_| {
             if password.is_empty() {
-                password_error.set("❌ Error: Password is empty".to_string());
+                password_error.set("❌  Error: Password is empty".to_string());
                 return;
             }
+
             is_sending.set(true);
             show_password_modal.set(false);
+
             let send_proof_result = send_proof_result.clone();
             let parsed = parsed_command.clone();
             let password = password.clone();
             let is_sending = is_sending.clone();
+
             wasm_bindgen_futures::spawn_local(async move {
                 match send_proof(
-                    parsed.proof_file.as_ref().map_or("", String::as_str).to_string(),
-                    parsed.key_name.as_ref().map_or("", String::as_str).to_string(),
-                    parsed.proving_system.as_ref().map_or("", String::as_str).to_string(),
+                    parsed
+                        .proof_file
+                        .as_ref()
+                        .map_or("", String::as_str)
+                        .to_string(),
+                    parsed
+                        .key_name
+                        .as_ref()
+                        .map_or("", String::as_str)
+                        .to_string(),
+                    parsed
+                        .proving_system
+                        .as_ref()
+                        .map_or("", String::as_str)
+                        .to_string(),
                     parsed.game.clone(),
                     parsed.payload.clone(),
                     parsed.elf_file.clone(),
@@ -490,9 +678,12 @@ pub fn app() -> Html {
                 {
                     Ok(result) => {
                         let resp: HashMap<String, Value> =
-                            serde_wasm_bindgen::from_value(result).unwrap_or_default();
+                            serde_wasm_bindgen::from_value(result)
+                                .unwrap_or_default();
 
-                        let get_str = |k: &str| -> Option<&str> { resp.get(k).and_then(|v| v.as_str()) };
+                        let get_str = |k: &str| -> Option<&str> {
+                            resp.get(k).and_then(|v| v.as_str())
+                        };
 
                         let normalize_status = |v: Option<&Value>| -> String {
                             match v {
@@ -512,16 +703,21 @@ pub fn app() -> Html {
                             }
                         };
 
-                        let status = get_str("status").unwrap_or("unknown").to_uppercase();
+                        let status =
+                            get_str("status").unwrap_or("unknown").to_uppercase();
                         let message = get_str("message").unwrap_or("No message");
-                        let proving = get_str("proving_system").unwrap_or("UNKNOWN");
+                        let proving =
+                            get_str("proving_system").unwrap_or("UNKNOWN");
 
                         let proof_verification = normalize_status(
                             resp.get("proof_verification_status")
                                 .or(resp.get("proof_verification")),
                         );
-                        let sui_transaction =
-                            normalize_status(resp.get("sui_status").or(resp.get("sui_transaction")));
+
+                        let sui_transaction = normalize_status(
+                            resp.get("sui_status")
+                                .or(resp.get("sui_transaction")),
+                        );
 
                         let transaction_digest = get_str("sui_transaction_digest")
                             .or(get_str("transaction_digest"))
@@ -531,56 +727,87 @@ pub fn app() -> Html {
                             .or(get_str("proof_blob_id"))
                             .unwrap_or("");
 
-                        let program_blob_id =
-                            get_str("program_blob_id").or(get_str("vk_blob_id")).unwrap_or("N/A");
+                        let program_blob_id = get_str("program_blob_id")
+                            .or(get_str("vk_blob_id"))
+                            .unwrap_or("N/A");
 
                         let suiscan_link = get_str("suiscan_link").unwrap_or("");
 
-                        let (walrus_proof, walrus_vk) = if let Some(arr) =
-                            resp.get("walruscan_links").and_then(|v| v.as_array())
-                        {
-                            let mut it = arr
-                                .iter()
-                                .filter_map(|v| v.as_str())
-                                .filter(|s| !s.is_empty() && *s != "N/A");
-                            (it.next().unwrap_or(""), it.next().unwrap_or(""))
-                        } else if let Some(obj) =
-                            resp.get("walruscan_links").and_then(|v| v.as_object())
-                        {
-                            (
-                                obj.get("proof_data")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or(""),
-                                obj.get("vk").and_then(|v| v.as_str()).unwrap_or(""),
-                            )
-                        } else {
-                            ("", "")
-                        };
+                        let (walrus_proof, walrus_vk) =
+                            if let Some(arr) = resp
+                                .get("walruscan_links")
+                                .and_then(|v| v.as_array())
+                            {
+                                let mut it = arr
+                                    .iter()
+                                    .filter_map(|v| v.as_str())
+                                    .filter(|s| !s.is_empty() && *s != "N/A");
+                                (it.next().unwrap_or(""), it.next().unwrap_or(""))
+                            } else if let Some(obj) = resp
+                                .get("walruscan_links")
+                                .and_then(|v| v.as_object())
+                            {
+                                (
+                                    obj.get("proof_data")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or(""),
+                                    obj.get("vk")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or(""),
+                                )
+                            } else {
+                                ("", "")
+                            };
 
                         let mut output = String::new();
                         output.push_str("🎯 Proof Submission Results\n");
                         output.push_str("═══════════════════════════\n");
-                        output.push_str(&format!("✅ Status: {}\n", status));
+                        output.push_str(&format!("✅  Status: {}\n", status));
                         output.push_str(&format!("📝 Message: {}\n", message));
-                        output.push_str(&format!("🔧 Proving System: {}\n", proving));
-                        output.push_str(&format!("🔍 Proof Verification: {}\n", proof_verification));
-                        output.push_str(&format!("⛓️ Sui Transaction: {}\n", sui_transaction));
-                        output.push_str(&format!("🔗 Transaction Digest: {}\n", transaction_digest));
-                        output.push_str(&format!("📦 Proof Blob ID: {}\n", proof_blob_id));
-                        output.push_str(&format!("🔑 Program Blob ID: {}\n", program_blob_id));
-                        output.push_str(&format!("🔍 Suiscan Link: {}\n", suiscan_link));
+                        output.push_str(&format!(
+                            "🔧 Proving System: {}\n",
+                            proving
+                        ));
+                        output.push_str(&format!(
+                            "🔍 Proof Verification: {}\n",
+                            proof_verification
+                        ));
+                        output.push_str(&format!(
+                            "⛓️ Sui Transaction: {}\n",
+                            sui_transaction
+                        ));
+                        output.push_str(&format!(
+                            "🔗 Transaction Digest: {}\n",
+                            transaction_digest
+                        ));
+                        output
+                            .push_str(&format!("📦 Proof Blob ID: {}\n", proof_blob_id));
+                        output.push_str(&format!(
+                            "🔑 Program Blob ID: {}\n",
+                            program_blob_id
+                        ));
+                        output.push_str(&format!(
+                            "🔍 Suiscan Link: {}\n",
+                            suiscan_link
+                        ));
                         output.push_str("🌊 Walruscan Links:\n");
-                        output.push_str(&format!("   📦 Proof Data: {}\n", walrus_proof));
+                        output.push_str(&format!(
+                            "   📦 Proof Data: {}\n",
+                            walrus_proof
+                        ));
                         output.push_str(&format!("   🔑 VK: {}\n", walrus_vk));
                         output.push_str("═══════════════════════════");
 
                         send_proof_result.set(output);
                     }
                     Err(e) => {
-                        let error = e.as_string().unwrap_or_else(|| "Unknown error".to_string());
-                        send_proof_result.set(format!("❌ Error: {}", error));
+                        let error = e
+                            .as_string()
+                            .unwrap_or_else(|| "Unknown error".to_string());
+                        send_proof_result.set(format!("❌  Error: {}", error));
                     }
                 }
+
                 is_sending.set(false);
                 password.set(String::new());
             });
@@ -591,6 +818,7 @@ pub fn app() -> Html {
         let show_password_modal = show_password_modal.clone();
         let password = password.clone();
         let password_error = password_error.clone();
+
         Callback::from(move |_| {
             show_password_modal.set(false);
             password.set(String::new());
@@ -605,6 +833,7 @@ pub fn app() -> Html {
             key_name.set(input.value());
         })
     };
+
     let on_import_key_name_input = {
         let import_key_name = import_key_name.clone();
         Callback::from(move |e: InputEvent| {
@@ -612,6 +841,7 @@ pub fn app() -> Html {
             import_key_name.set(input.value());
         })
     };
+
     let on_import_password_input = {
         let import_password = import_password.clone();
         Callback::from(move |e: InputEvent| {
@@ -619,6 +849,7 @@ pub fn app() -> Html {
             import_password.set(input.value());
         })
     };
+
     let on_import_phrase_input = {
         let mnemonic_phrase = mnemonic_phrase.clone();
         Callback::from(move |e: InputEvent| {
@@ -630,6 +861,7 @@ pub fn app() -> Html {
     let on_tab_select = {
         let selected_tab = selected_tab.clone();
         let mobile_menu_open = mobile_menu_open.clone();
+
         Callback::from(move |e: MouseEvent| {
             let target: web_sys::HtmlElement = e.target_unchecked_into();
             if let Some(tab) = target.get_attribute("data-tab") {
@@ -639,79 +871,149 @@ pub fn app() -> Html {
         })
     };
 
+    // -------- tab content --------
     let tab_content: Html = match selected_tab.as_str() {
         "generate" => html! {
             <div class="input-group">
                 <h2>{ "Generate Key Pair" }</h2>
+
                 <div class="form-group">
                     <label class="form-label">{ "Key Name" }</label>
-                    <input type="text" placeholder="Enter key name"
+                    <input
+                        type="text"
+                        placeholder="Enter key name"
                         oninput={on_key_name_input.clone()}
-                        value={(*key_name).clone()} class="form-input" />
+                        value={(*key_name).clone()}
+                        class="form-input"
+                    />
                 </div>
+
                 <div class="form-group">
                     <label class="form-label">{ "Password" }</label>
-                    <input type="password" placeholder="Enter password"
+                    <input
+                        type="password"
+                        placeholder="Enter password"
                         oninput={on_password_input.clone()}
-                        value={(*password).clone()} class="form-input" />
+                        value={(*password).clone()}
+                        class="form-input"
+                    />
                 </div>
-                <button class="submit-btn" onclick={on_generate_key}>{ "Generate Key" }</button>
-                <div class="output-box"><pre>{ &(*generate_key_result) }</pre></div>
+
+                <button class="submit-btn" onclick={on_generate_key}>
+                    { "Generate Key" }
+                </button>
+
+                <div class="output-box">
+                    <pre>{ &(*generate_key_result) }</pre>
+                </div>
             </div>
         },
+
         "import" => html! {
             <div class="input-group">
                 <h2>{ "Import Mnemonic Phrase" }</h2>
+
                 <div class="form-group">
                     <label class="form-label">{ "Mnemonic Phrase" }</label>
-                    <input type="text" placeholder="Enter mnemonic phrase"
+                    <input
+                        type="text"
+                        placeholder="Enter mnemonic phrase"
                         oninput={on_import_phrase_input}
-                        value={(*mnemonic_phrase).clone()} class="form-input" />
+                        value={(*mnemonic_phrase).clone()}
+                        class="form-input"
+                    />
                 </div>
+
                 <div class="form-group">
                     <label class="form-label">{ "Key Name" }</label>
-                    <input type="text" placeholder="Enter key name"
+                    <input
+                        type="text"
+                        placeholder="Enter key name"
                         oninput={on_import_key_name_input}
-                        value={(*import_key_name).clone()} class="form-input" />
+                        value={(*import_key_name).clone()}
+                        class="form-input"
+                    />
                 </div>
+
                 <div class="form-group">
                     <label class="form-label">{ "Password" }</label>
-                    <input type="password" placeholder="Enter password"
+                    <input
+                        type="password"
+                        placeholder="Enter password"
                         oninput={on_import_password_input}
-                        value={(*import_password).clone()} class="form-input" />
+                        value={(*import_password).clone()}
+                        class="form-input"
+                    />
                 </div>
-                <button class="submit-btn" onclick={on_import_phrase}>{ "Import Phrase" }</button>
-                <div class="output-box"><pre>{ &(*import_phrase_result) }</pre></div>
+
+                <button class="submit-btn" onclick={on_import_phrase}>
+                    { "Import Phrase" }
+                </button>
+
+                <div class="output-box">
+                    <pre>{ &(*import_phrase_result) }</pre>
+                </div>
             </div>
         },
+
         "list" => html! {
             <div class="input-group">
                 <h2>{ "List Keys" }</h2>
-                <button class="submit-btn" onclick={on_list_keys}>{ "Refresh Keys" }</button>
-                <div class="output-box"><pre>{ &(*list_keys_result) }</pre></div>
+
+                <button class="submit-btn" onclick={on_list_keys}>
+                    { "Refresh Keys" }
+                </button>
+
+                <div class="output-box">
+                    <pre>{ &(*list_keys_result) }</pre>
+                </div>
             </div>
         },
+
         "send" => html! {
             <div class="input-group">
                 <h2>{ "Send Proof" }</h2>
+
                 <div class="form-group">
                     <label class="form-label">{ "Command" }</label>
-                    <input type="text" placeholder="Enter soundness-cli command"
+                    <input
+                        type="text"
+                        placeholder="Enter soundness-cli command"
                         oninput={on_command_input}
-                        value={(*command).clone()} class="form-input" />
+                        value={(*command).clone()}
+                        class="form-input"
+                    />
                 </div>
+
                 <div class="button-group">
-                    <button class="submit-btn" onclick={on_parse}>{ "Parse Command" }</button>
-                    <button class={if *is_sending { "submit-btn loading" } else { "submit-btn" }}
+                    <button class="submit-btn" onclick={on_parse}>
+                        { "Parse Command" }
+                    </button>
+
+                    <button
+                        class={if *is_sending { "submit-btn loading" } else { "submit-btn" }}
                         onclick={on_open_password_modal}
-                        disabled={(*parsed_command).key_name.is_none() || *is_sending}>
+                        disabled={(*parsed_command).key_name.is_none() || *is_sending}
+                    >
                         { if *is_sending { "Sending..." } else { "Send Proof" } }
                     </button>
                 </div>
+
                 <div class="output-box">
                     {
                         if *is_sending {
-                            html! { <pre>{ "🔍 [Step 1] Analyzing inputs...\n📁 [Step 1.1] Proof: Detected as Walrus Blob ID\n📁 [Step 1.2] Proof value: <loading>\n📁 [Step 1.3] ELF Program: <loading>\n📂 [Step 2] Processing inputs...\n🔧 [Step 3] Building request body...\n✍️ [Step 4] Signing payload...\n🚀 [Step 5] Sending to server..." }</pre> }
+                            html! {
+                                <pre>
+                                    { "🔍 [Step 1] Analyzing inputs...\n" }
+                                    { "📁 [Step 1.1] Proof: Detected as Walrus Blob ID\n" }
+                                    { "📁 [Step 1.2] Proof value: <loading>\n" }
+                                    { "📁 [Step 1.3] ELF Program: <loading>\n" }
+                                    { "📂 [Step 2] Processing inputs...\n" }
+                                    { "🔧 [Step 3] Building request body...\n" }
+                                    { "✍️ [Step 4] Signing payload...\n" }
+                                    { "🚀 [Step 5] Sending to server..." }
+                                </pre>
+                            }
                         } else {
                             let combined = (*parse_result).clone() + "\n" + &(*send_proof_result);
                             let html_str = linkify(&combined);
@@ -726,33 +1028,53 @@ pub fn app() -> Html {
                             <div class="modal active">
                                 <div class="modal-content">
                                     <div class="modal-header">{ "Enter Password" }</div>
+
                                     <div class="form-group">
                                         <label class="form-label">{ "Password" }</label>
-                                        <input type="password" placeholder="Enter password to decrypt the secret key"
-                                            oninput={on_password_input} value={(*password).clone()} class="form-input" />
+                                        <input
+                                            type="password"
+                                            placeholder="Enter password to decrypt the secret key"
+                                            oninput={on_password_input}
+                                            value={(*password).clone()}
+                                            class="form-input"
+                                        />
                                     </div>
-                                    <div class="output-box"><pre class="error-text">{ &(*password_error) }</pre></div>
+
+                                    <div class="output-box">
+                                        <pre class="error-text">{ &(*password_error) }</pre>
+                                    </div>
+
                                     <div class="modal-footer">
-                                        <button class="cancel-btn" onclick={on_cancel_password}>{ "Cancel" }</button>
-                                        <button class="submit-btn" onclick={on_send_proof}>{ "Submit" }</button>
+                                        <button class="cancel-btn" onclick={on_cancel_password}>
+                                            { "Cancel" }
+                                        </button>
+                                        <button class="submit-btn" onclick={on_send_proof}>
+                                            { "Submit" }
+                                        </button>
                                     </div>
                                 </div>
                             </div>
                         }
-                    } else { html!{} }
+                    } else {
+                        html! {}
+                    }
                 }
             </div>
         },
+
         _ => html! { <div>{ "Invalid tab" }</div> },
     };
 
+    // -------- render root --------
     html! {
         <div class="app-container" id="app-root">
+
             <header class="app-header">
                 <div class="header-content">
                     <h1>{ "Soundness TUI" }</h1>
-                    <div class="version">{ "v0.1.0" }</div>
+                    <div class="version">{ "v0.2.0" }</div>
                 </div>
+
                 <button class="mobile-menu-btn" onclick={toggle_mobile_menu}>
                     { if *mobile_menu_open { "✕" } else { "☰" } }
                 </button>
@@ -760,10 +1082,37 @@ pub fn app() -> Html {
 
             <nav class={classes!("tab-nav", if *mobile_menu_open { "mobile-open" } else { "" })}>
                 <div class="nav-buttons">
-                    <button class={classes!("tab-btn", if *selected_tab == "generate" { "active" } else { "" })} data-tab="generate" onclick={on_tab_select.clone()}>{ "Generate Key" }</button>
-                    <button class={classes!("tab-btn", if *selected_tab == "import" { "active" } else { "" })} data-tab="import" onclick={on_tab_select.clone()}>{ "Import Phrase" }</button>
-                    <button class={classes!("tab-btn", if *selected_tab == "list" { "active" } else { "" })} data-tab="list" onclick={on_tab_select.clone()}>{ "List Keys" }</button>
-                    <button class={classes!("tab-btn", if *selected_tab == "send" { "active" } else { "" })} data-tab="send" onclick={on_tab_select.clone()}>{ "Send Proof" }</button>
+                    <button
+                        class={classes!("tab-btn", if *selected_tab == "generate" { "active" } else { "" })}
+                        data-tab="generate"
+                        onclick={on_tab_select.clone()}
+                    >
+                        { "Generate Key" }
+                    </button>
+
+                    <button
+                        class={classes!("tab-btn", if *selected_tab == "import" { "active" } else { "" })}
+                        data-tab="import"
+                        onclick={on_tab_select.clone()}
+                    >
+                        { "Import Phrase" }
+                    </button>
+
+                    <button
+                        class={classes!("tab-btn", if *selected_tab == "list" { "active" } else { "" })}
+                        data-tab="list"
+                        onclick={on_tab_select.clone()}
+                    >
+                        { "List Keys" }
+                    </button>
+
+                    <button
+                        class={classes!("tab-btn", if *selected_tab == "send" { "active" } else { "" })}
+                        data-tab="send"
+                        onclick={on_tab_select.clone()}
+                    >
+                        { "Send Proof" }
+                    </button>
                 </div>
             </nav>
 
@@ -773,8 +1122,10 @@ pub fn app() -> Html {
                 <div class="role-card">
                     <div class="role-left">
                         <div class="role-title">
-                            { "Today's Role" } <span class="role-badge">{ "rotates daily" }</span>
+                            { "Today's Role" }
+                            <span class="role-badge">{ "rotates daily" }</span>
                         </div>
+
                         <div class="role-date">{ (*today_date).clone() }</div>
 
                         <span class="role-current">
@@ -791,7 +1142,7 @@ pub fn app() -> Html {
                             { for (*upcoming).iter().map(|(d, r)| html! {
                                 <li>
                                     <span class="u-date">{ d }</span>
-                                    <span class="u-dot">{"•"}</span>
+                                    <span class="u-dot">{ "•" }</span>
                                     <span class="u-role">{ r }</span>
                                 </li>
                             }) }
@@ -803,10 +1154,22 @@ pub fn app() -> Html {
             <footer class="app-footer">
                 <div class="footer-content">
                     <div class="footer-links">
-                        <a href="https://github.com/SoundnessLabs/soundness-layer/tree/main/soundness-cli" target="_blank">{ "Testnet" }</a>
-                        <a href="https://github.com/robynasuro/soundness-tui" target="_blank">{ "GitHub" }</a>
-                        <a href="https://twitter.com/0xcreamy" target="_blank">{ "Twitter" }</a>
+                        <a
+                            href="https://github.com/SoundnessLabs/soundness-layer/tree/main/soundness-cli"
+                            target="_blank"
+                        >
+                            { "Testnet" }
+                        </a>
+
+                        <a href="https://github.com/robynasuro/soundness-tui" target="_blank">
+                            { "GitHub" }
+                        </a>
+
+                        <a href="https://twitter.com/0xcreamy" target="_blank">
+                            { "Twitter" }
+                        </a>
                     </div>
+
                     <div class="footer-copyright">
                         { "© 2025 Built with ❤️ by 0xcreamy" }
                     </div>
@@ -820,9 +1183,12 @@ pub fn app() -> Html {
 pub fn start_app() -> Result<(), JsValue> {
     STARTED.call_once(|| {
         console_error_panic_hook::set_once();
+
         INIT_LOGGER.call_once(|| {
-            console_log::init_with_level(log::Level::Debug).expect("Failed to init logger");
+            console_log::init_with_level(log::Level::Debug)
+                .expect("Failed to init logger");
         });
+
         log("Starting Soundness TUI application...");
         yew::Renderer::<App>::new().render();
     });

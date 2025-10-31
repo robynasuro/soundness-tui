@@ -313,17 +313,17 @@ export function import_phrase(phrase, name, password) {
 }
 
 /**
- * @param {string} proof_blob_id
+ * @param {string} proof_input
  * @param {string} key_name
  * @param {string} proving_system
  * @param {string | null | undefined} game
  * @param {string | null | undefined} payload
- * @param {string | null | undefined} elf_file
+ * @param {string | null | undefined} elf_input
  * @param {string} password
  * @returns {Promise<any>}
  */
-export function send_proof(proof_blob_id, key_name, proving_system, game, payload, elf_file, password) {
-    const ptr0 = passStringToWasm0(proof_blob_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+export function send_proof(proof_input, key_name, proving_system, game, payload, elf_input, password) {
+    const ptr0 = passStringToWasm0(proof_input, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(key_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
@@ -333,7 +333,7 @@ export function send_proof(proof_blob_id, key_name, proving_system, game, payloa
     var len3 = WASM_VECTOR_LEN;
     var ptr4 = isLikeNone(payload) ? 0 : passStringToWasm0(payload, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     var len4 = WASM_VECTOR_LEN;
-    var ptr5 = isLikeNone(elf_file) ? 0 : passStringToWasm0(elf_file, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    var ptr5 = isLikeNone(elf_input) ? 0 : passStringToWasm0(elf_input, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     var len5 = WASM_VECTOR_LEN;
     const ptr6 = passStringToWasm0(password, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len6 = WASM_VECTOR_LEN;
@@ -646,7 +646,7 @@ function __wbg_get_imports() {
         const ret = arg0.localStorage;
         return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
     }, arguments) };
-    imports.wbg.__wbg_log_5ca6104b254efb13 = function(arg0, arg1) {
+    imports.wbg.__wbg_log_af77a5524512fdc2 = function(arg0, arg1) {
         console.log(getStringFromWasm0(arg0, arg1));
     };
     imports.wbg.__wbg_msCrypto_a61aeb35a24c1329 = function(arg0) {
@@ -774,7 +774,7 @@ function __wbg_get_imports() {
         const ret = Promise.resolve(arg0);
         return ret;
     };
-    imports.wbg.__wbg_sendProofViaJs_e20e5d6ef3d7015a = function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+    imports.wbg.__wbg_sendProofViaJs_e72b387c90288c88 = function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
         const ret = window.sendProofViaJs(getStringFromWasm0(arg0, arg1), getStringFromWasm0(arg2, arg3), getStringFromWasm0(arg4, arg5), getStringFromWasm0(arg6, arg7));
         return ret;
     }, arguments) };
@@ -924,11 +924,11 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper2178 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper2186 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 56, __wbg_adapter_51);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper3046 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper3054 = function(arg0, arg1, arg2) {
         const ret = makeClosure(arg0, arg1, 56, __wbg_adapter_54);
         return ret;
     };
